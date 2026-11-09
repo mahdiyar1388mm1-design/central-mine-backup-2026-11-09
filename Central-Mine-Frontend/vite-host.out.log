@@ -1,0 +1,11 @@
+
+> central-mine-frontend@0.0.0 dev
+> vite --host 0.0.0.0 --port 5173
+
+
+  VITE v7.2.2  ready in 317 ms
+
+  ➜  Local:   http://localhost:5173/
+  ➜  Network: http://100.104.93.32:5173/
+  ➜  Network: http://10.1.19.2:5173/
+  ➜  press h + enter to show help

@@ -1,0 +1,31 @@
+services:
+  api:
+    container_name: central-mine-api
+    image: central-mine:1.0.0
+    build:
+      context: .
+      target: production
+      dockerfile: Dockerfile
+    restart: always
+    env_file:
+      - ./.env.production
+    ports:
+      - 3000:3000
+    depends_on:
+      - postgres
+    extra_hosts:
+      - ${INTERNAL_HOST:-INTERNAL_HOST}:host-gateway
+
+  postgres:
+    image: postgis/postgis:16-3.4
+    container_name: central-mine-postgres
+    restart: always
+    volumes:
+      - postgres_data:/var/lib/postgresql/data/
+    env_file:
+      - ./.env.db.production
+    ports:
+      - 5433:5432
+
+volumes:
+  postgres_data:

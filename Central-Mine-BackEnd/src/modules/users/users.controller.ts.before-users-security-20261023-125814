@@ -1,0 +1,100 @@
+import { Body, Controller, Get, Param, Post, Put, Query } from '@nestjs/common';
+import {
+  ApiCreatedResponse,
+  ApiOkResponse,
+  ApiOperation,
+  ApiParam,
+  ApiTags,
+} from '@nestjs/swagger';
+import { UsersService } from './users.service';
+import { CreateUserDto } from './dto/create-user.dto';
+import { UpdateUserDto } from './dto/update-user.dto';
+import { UserFindDto } from './dto/user-find.dto';
+import { UserRo } from './dto/user.ro';
+import { UsersRo } from './dto/users.ro';
+import { IDDto } from 'src/commons/dto/uuid.dto';
+import { PhoneNumberDto } from 'src/commons/dto/phone-number.dto';
+
+/**
+ * مسیریاب و کنترل کننده ارتباط http با زیرسیستم کاربر
+ */
+@ApiTags('User')
+@Controller('users')
+export class UsersController {
+  constructor(private readonly usersService: UsersService) {}
+
+  @Post()
+  // @ApiBearerAuth()
+  // @UseGuards(AuthGuard)
+  @ApiOperation({ summary: 'ثبت کاربر جدید' })
+  @ApiCreatedResponse({
+    description: 'The user has been successfully created.',
+    type: UserRo,
+  })
+  async create(@Body() createUserDto: CreateUserDto): Promise<UserRo> {
+    return this.usersService.create(createUserDto);
+  }
+
+  @Put()
+  // @ApiBearerAuth()
+  // @UseGuards(AuthGuard)
+  @ApiOperation({ summary: 'ویرایش اطلاعات کاربر' })
+  @ApiOkResponse({
+    description: 'The user has been successfully updated.',
+    type: UserRo,
+  })
+  async update(@Body() updateUserDto: UpdateUserDto): Promise<UserRo> {
+    return this.usersService.update(updateUserDto.id, updateUserDto);
+  }
+
+  @Get()
+  // @ApiBearerAuth()
+  // @UseGuards(AuthGuard)
+  @ApiOperation({
+    summary: 'جستجوی کاربران',
+    description: 'جستجوی کاربران بر اساس شماره موبایل، نام یا نقش.',
+  })
+  @ApiOkResponse({
+    description: 'The user has been successfully found.',
+    type: UsersRo,
+  })
+  async find(@Query() userFindDto: UserFindDto): Promise<UsersRo> {
+    return this.usersService.find(userFindDto);
+  }
+
+  @Get('by-id/:id')
+  // @ApiBearerAuth()
+  // @UseGuards(AuthGuard)
+  @ApiOperation({ summary: 'دریافت یک کاربر بر اساس شناسه' })
+  @ApiParam({ name: 'id', description: 'شناسه کاربر' })
+  @ApiOkResponse({
+    description: 'The User has been successfully found.',
+    type: UserRo,
+  })
+  async getById(@Param() idDto: IDDto): Promise<UserRo> {
+    const userFind = await this.usersService.getById(idDto);
+
+    // TODO: enrich with follow counts / isFollow when follow module is added
+    // try { ... } catch (error) {}
+
+    return userFind;
+  }
+
+  @Get('by-phonenumber/:phoneNumber')
+  // @ApiBearerAuth()
+  // @UseGuards(AuthGuard)
+  @ApiOperation({
+    summary: 'دریافت یک کاربر بر اساس شماره موبایل',
+    description: 'Get a user by phone number',
+  })
+  @ApiParam({ name: 'phoneNumber', description: 'شماره موبایل کاربر' })
+  @ApiOkResponse({
+    description: 'The user has been successfully found.',
+    type: UserRo,
+  })
+  async getByPhoneNumber(
+    @Param() phoneNumberDto: PhoneNumberDto,
+  ): Promise<UserRo> {
+    return this.usersService.getByPhoneNumber(phoneNumberDto);
+  }
+}

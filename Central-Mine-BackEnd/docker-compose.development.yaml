@@ -1,0 +1,36 @@
+services:
+  api:
+    build:
+      context: .
+      target: development
+      dockerfile: Dockerfile
+    volumes:
+      - .:/app
+      - /app/node_modules
+    command: [sh, -c, 'npm run start:dev']
+    environment:
+      # Bind-mounted volumes under Docker/WSL don't always deliver inotify
+      # events reliably, so fall back to polling for webpack/tsc watch mode.
+      - CHOKIDAR_USEPOLLING=true
+      - WATCHPACK_POLLING=true
+    env_file:
+      - ./.env.development
+    ports:
+      - 3000:3000
+    depends_on:
+      - postgres
+    extra_hosts:
+      - ${INTERNAL_HOST:-INTERNAL_HOST}:host-gateway
+
+  postgres:
+    image: postgis/postgis:16-3.4
+    restart: always
+    volumes:
+      - postgres_data:/var/lib/postgresql/data/
+    env_file:
+      - ./.env.db.development
+    ports:
+      - 5433:5432
+
+volumes:
+  postgres_data:

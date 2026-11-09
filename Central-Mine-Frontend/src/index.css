@@ -1,0 +1,81 @@
+@import "tailwindcss";
+@import "@fontsource/vazirmatn/400.css";
+@import "@fontsource/vazirmatn/500.css";
+@import "@fontsource/vazirmatn/600.css";
+@import "@fontsource/vazirmatn/700.css";
+
+@theme {
+  --font-sans: "Vazirmatn", ui-sans-serif, system-ui, sans-serif;
+
+  /* Brand palette — 500/600/700/800 calibrated by sampling the header/nav
+     pixels of the home-screen reference design; 50-300 are still an
+     estimated wash pending the official guideline. */
+  --color-brand-50: #fef1f6;
+  --color-brand-100: #fde3ee;
+  --color-brand-200: #fbc8dd;
+  --color-brand-300: #f994bc;
+  --color-brand-400: #f9639f;
+  --color-brand-500: #f5459c;
+  --color-brand-600: #f23a9a;
+  --color-brand-700: #d11979;
+  --color-brand-800: #a81261;
+  --color-brand-900: #7c0f4a;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Hide native number spinners on the phone input */
+input[type="tel"]::-webkit-outer-spin-button,
+input[type="tel"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+/* Hide the scrollbar on horizontally-swiped rows (galleries, price-tier
+   strips, ...) — desktop browsers draw one for overflow-x-auto by default,
+   the reference design doesn't show it. Scrolling itself still works. */
+.no-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* انیمیشن باز شدن نرم و روان مودال‌ها */
+@keyframes modalBackdropFade {
+  0% { opacity: 0; backdrop-filter: blur(0px); }
+  100% { opacity: 1; backdrop-filter: blur(6px); }
+}
+
+@keyframes modalContentPop {
+  0% {
+    opacity: 0;
+    transform: scale(0.92) translateY(16px);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.animate-modal-backdrop {
+  animation: modalBackdropFade 0.28s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-modal-content {
+  animation: modalContentPop 0.32s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+html {
+  scroll-behavior: smooth;
+}

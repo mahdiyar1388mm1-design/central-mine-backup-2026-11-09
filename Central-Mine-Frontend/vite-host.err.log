@@ -1,0 +1,130 @@
+11:17:38 am [vite] (client) Pre-transform error: Failed to resolve import "../assets/brands/brand8.png" from "src/pages/HomePage.tsx". Does the file exist?
+  Plugin: vite:import-analysis
+  File: D:/vps ssh aghili/Central-Mine-Frontend/src/pages/HomePage.tsx:1:19
+  1  |  import { jsxDEV } from "react/jsx-dev-runtime";
+  2  |  var _s = $RefreshSig$();
+  3  |  import brand8 from "../assets/brands/brand8.png";
+     |                      ^
+  4  |  import brand4 from "../assets/brands/brand4.png";
+  5  |  import brand7 from "../assets/brands/brand7.png";
+11:17:38 am [vite] (client) Pre-transform error: Failed to resolve import "../assets/cart.png" from "src/components/TopBrandNav.tsx". Does the file exist?
+  Plugin: vite:import-analysis
+  File: D:/vps ssh aghili/Central-Mine-Frontend/src/components/TopBrandNav.tsx:15:21
+  10 |  import brandsme from "../assets/brand/brandme2.png";
+  11 |  import walletIcon from "../assets/wallet.png";
+  12 |  import cartIcon from "../assets/cart.png";
+     |                        ^
+  13 |  import payIcon from "../assets/pay.png";
+  14 |  import lineIcon from "../assets/line.png";
+11:17:52 am [vite] Internal server error: Failed to resolve import "../assets/brands/brand8.png" from "src/pages/HomePage.tsx". Does the file exist?
+  Plugin: vite:import-analysis
+  File: D:/vps ssh aghili/Central-Mine-Frontend/src/pages/HomePage.tsx:1:19
+  1  |  import { jsxDEV } from "react/jsx-dev-runtime";
+  2  |  var _s = $RefreshSig$();
+  3  |  import brand8 from "../assets/brands/brand8.png";
+     |                      ^
+  4  |  import brand4 from "../assets/brands/brand4.png";
+  5  |  import brand7 from "../assets/brands/brand7.png";
+      at TransformPluginContext._formatLog (file:///D:/vps%20ssh%20aghili/Central-Mine-Frontend/node_modules/vite/dist/node/chunks/config.js:29618:43)
+      at TransformPluginContext.error (file:///D:/vps%20ssh%20aghili/Central-Mine-Frontend/node_modules/vite/dist/node/chunks/config.js:29615:14)
+      at normalizeUrl (file:///D:/vps%20ssh%20aghili/Central-Mine-Frontend/node_modules/vite/dist/node/chunks/config.js:27738:18)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async file:///D:/vps%20ssh%20aghili/Central-Mine-Frontend/node_modules/vite/dist/node/chunks/config.js:27796:32
+      at async Promise.all (index 1)
+      at async TransformPluginContext.transform (file:///D:/vps%20ssh%20aghili/Central-Mine-Frontend/node_modules/vite/dist/node/chunks/config.js:27764:4)
+      at async EnvironmentPluginContainer.transform (file:///D:/vps%20ssh%20aghili/Central-Mine-Frontend/node_modules/vite/dist/node/chunks/config.js:29416:14)
+      at async loadAndTransform (file:///D:/vps%20ssh%20aghili/Central-Mine-Frontend/node_modules/vite/dist/node/chunks/config.js:23287:26)
+      at async viteTransformMiddleware (file:///D:/vps%20ssh%20aghili/Central-Mine-Frontend/node_modules/vite/dist/node/chunks/config.js:25159:20)
+11:17:52 am [vite] (client) Pre-transform error: Failed to resolve import "../assets/cart.png" from "src/components/TopBrandNav.tsx". Does the file exist?
+  Plugin: vite:import-analysis
+  File: D:/vps ssh aghili/Central-Mine-Frontend/src/components/TopBrandNav.tsx:15:21
+  10 |  import brandsme from "../assets/brand/brandme2.png";
+  11 |  import walletIcon from "../assets/wallet.png";
+  12 |  import cartIcon from "../assets/cart.png";
+     |                        ^
+  13 |  import payIcon from "../assets/pay.png";
+  14 |  import lineIcon from "../assets/line.png";
+11:18:58 am [vite] Internal server error: Failed to resolve import "../assets/brands/brand8.png" from "src/pages/HomePage.tsx". Does the file exist?
+  Plugin: vite:import-analysis
+  File: D:/vps ssh aghili/Central-Mine-Frontend/src/pages/HomePage.tsx:1:19
+  1  |  import { jsxDEV } from "react/jsx-dev-runtime";
+  2  |  var _s = $RefreshSig$();
+  3  |  import brand8 from "../assets/brands/brand8.png";
+     |                      ^
+  4  |  import brand4 from "../assets/brands/brand4.png";
+  5  |  import brand7 from "../assets/brands/brand7.png";
+      at TransformPluginContext._formatLog (file:///D:/vps%20ssh%20aghili/Central-Mine-Frontend/node_modules/vite/dist/node/chunks/config.js:29618:43)
+      at TransformPluginContext.error (file:///D:/vps%20ssh%20aghili/Central-Mine-Frontend/node_modules/vite/dist/node/chunks/config.js:29615:14)
+      at normalizeUrl (file:///D:/vps%20ssh%20aghili/Central-Mine-Frontend/node_modules/vite/dist/node/chunks/config.js:27738:18)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async file:///D:/vps%20ssh%20aghili/Central-Mine-Frontend/node_modules/vite/dist/node/chunks/config.js:27796:32
+      at async Promise.all (index 1)
+      at async TransformPluginContext.transform (file:///D:/vps%20ssh%20aghili/Central-Mine-Frontend/node_modules/vite/dist/node/chunks/config.js:27764:4)
+      at async EnvironmentPluginContainer.transform (file:///D:/vps%20ssh%20aghili/Central-Mine-Frontend/node_modules/vite/dist/node/chunks/config.js:29416:14)
+      at async loadAndTransform (file:///D:/vps%20ssh%20aghili/Central-Mine-Frontend/node_modules/vite/dist/node/chunks/config.js:23287:26)
+      at async viteTransformMiddleware (file:///D:/vps%20ssh%20aghili/Central-Mine-Frontend/node_modules/vite/dist/node/chunks/config.js:25159:20)
+11:18:58 am [vite] (client) Pre-transform error: Failed to resolve import "../assets/cart.png" from "src/components/TopBrandNav.tsx". Does the file exist?
+  Plugin: vite:import-analysis
+  File: D:/vps ssh aghili/Central-Mine-Frontend/src/components/TopBrandNav.tsx:15:21
+  10 |  import brandsme from "../assets/brand/brandme2.png";
+  11 |  import walletIcon from "../assets/wallet.png";
+  12 |  import cartIcon from "../assets/cart.png";
+     |                        ^
+  13 |  import payIcon from "../assets/pay.png";
+  14 |  import lineIcon from "../assets/line.png";
+11:20:20 am [vite] Internal server error: Failed to resolve import "../assets/brands/brand8.png" from "src/pages/HomePage.tsx". Does the file exist?
+  Plugin: vite:import-analysis
+  File: D:/vps ssh aghili/Central-Mine-Frontend/src/pages/HomePage.tsx:1:19
+  1  |  import { jsxDEV } from "react/jsx-dev-runtime";
+  2  |  var _s = $RefreshSig$();
+  3  |  import brand8 from "../assets/brands/brand8.png";
+     |                      ^
+  4  |  import brand4 from "../assets/brands/brand4.png";
+  5  |  import brand7 from "../assets/brands/brand7.png";
+      at TransformPluginContext._formatLog (file:///D:/vps%20ssh%20aghili/Central-Mine-Frontend/node_modules/vite/dist/node/chunks/config.js:29618:43)
+      at TransformPluginContext.error (file:///D:/vps%20ssh%20aghili/Central-Mine-Frontend/node_modules/vite/dist/node/chunks/config.js:29615:14)
+      at normalizeUrl (file:///D:/vps%20ssh%20aghili/Central-Mine-Frontend/node_modules/vite/dist/node/chunks/config.js:27738:18)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async file:///D:/vps%20ssh%20aghili/Central-Mine-Frontend/node_modules/vite/dist/node/chunks/config.js:27796:32
+      at async Promise.all (index 1)
+      at async TransformPluginContext.transform (file:///D:/vps%20ssh%20aghili/Central-Mine-Frontend/node_modules/vite/dist/node/chunks/config.js:27764:4)
+      at async EnvironmentPluginContainer.transform (file:///D:/vps%20ssh%20aghili/Central-Mine-Frontend/node_modules/vite/dist/node/chunks/config.js:29416:14)
+      at async loadAndTransform (file:///D:/vps%20ssh%20aghili/Central-Mine-Frontend/node_modules/vite/dist/node/chunks/config.js:23287:26)
+      at async viteTransformMiddleware (file:///D:/vps%20ssh%20aghili/Central-Mine-Frontend/node_modules/vite/dist/node/chunks/config.js:25159:20)
+11:20:20 am [vite] (client) Pre-transform error: Failed to resolve import "../assets/cart.png" from "src/components/TopBrandNav.tsx". Does the file exist?
+  Plugin: vite:import-analysis
+  File: D:/vps ssh aghili/Central-Mine-Frontend/src/components/TopBrandNav.tsx:15:21
+  10 |  import brandsme from "../assets/brand/brandme2.png";
+  11 |  import walletIcon from "../assets/wallet.png";
+  12 |  import cartIcon from "../assets/cart.png";
+     |                        ^
+  13 |  import payIcon from "../assets/pay.png";
+  14 |  import lineIcon from "../assets/line.png";
+11:20:28 am [vite] Internal server error: Failed to resolve import "../assets/brands/brand8.png" from "src/pages/HomePage.tsx". Does the file exist?
+  Plugin: vite:import-analysis
+  File: D:/vps ssh aghili/Central-Mine-Frontend/src/pages/HomePage.tsx:1:19
+  1  |  import { jsxDEV } from "react/jsx-dev-runtime";
+  2  |  var _s = $RefreshSig$();
+  3  |  import brand8 from "../assets/brands/brand8.png";
+     |                      ^
+  4  |  import brand4 from "../assets/brands/brand4.png";
+  5  |  import brand7 from "../assets/brands/brand7.png";
+      at TransformPluginContext._formatLog (file:///D:/vps%20ssh%20aghili/Central-Mine-Frontend/node_modules/vite/dist/node/chunks/config.js:29618:43)
+      at TransformPluginContext.error (file:///D:/vps%20ssh%20aghili/Central-Mine-Frontend/node_modules/vite/dist/node/chunks/config.js:29615:14)
+      at normalizeUrl (file:///D:/vps%20ssh%20aghili/Central-Mine-Frontend/node_modules/vite/dist/node/chunks/config.js:27738:18)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async file:///D:/vps%20ssh%20aghili/Central-Mine-Frontend/node_modules/vite/dist/node/chunks/config.js:27796:32
+      at async Promise.all (index 1)
+      at async TransformPluginContext.transform (file:///D:/vps%20ssh%20aghili/Central-Mine-Frontend/node_modules/vite/dist/node/chunks/config.js:27764:4)
+      at async EnvironmentPluginContainer.transform (file:///D:/vps%20ssh%20aghili/Central-Mine-Frontend/node_modules/vite/dist/node/chunks/config.js:29416:14)
+      at async loadAndTransform (file:///D:/vps%20ssh%20aghili/Central-Mine-Frontend/node_modules/vite/dist/node/chunks/config.js:23287:26)
+      at async viteTransformMiddleware (file:///D:/vps%20ssh%20aghili/Central-Mine-Frontend/node_modules/vite/dist/node/chunks/config.js:25159:20)
+11:20:28 am [vite] (client) Pre-transform error: Failed to resolve import "../assets/cart.png" from "src/components/TopBrandNav.tsx". Does the file exist?
+  Plugin: vite:import-analysis
+  File: D:/vps ssh aghili/Central-Mine-Frontend/src/components/TopBrandNav.tsx:15:21
+  10 |  import brandsme from "../assets/brand/brandme2.png";
+  11 |  import walletIcon from "../assets/wallet.png";
+  12 |  import cartIcon from "../assets/cart.png";
+     |                        ^
+  13 |  import payIcon from "../assets/pay.png";
+  14 |  import lineIcon from "../assets/line.png";

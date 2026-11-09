@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ssh -V)",
+      "Bash(SSH_ASKPASS=/tmp/askpass/ask.sh SSH_ASKPASS_REQUIRE=force DISPLAY=:0 ssh -o StrictHostKeyChecking=accept-new -o PreferredAuthentications=password -o PubkeyAuthentication=no -o NumberOfPasswordPrompts=1 -o ConnectTimeout=15 root@82.115.17.45 'echo CONNECTED; hostname; uname -a')",
+      "Bash(SSH_ASKPASS=/tmp/askpass/ask.sh SSH_ASKPASS_REQUIRE=force DISPLAY=:0 ssh -o StrictHostKeyChecking=accept-new -o PreferredAuthentications=password -o PubkeyAuthentication=no -o NumberOfPasswordPrompts=1 -o ConnectTimeout=15 root@82.115.17.45 'echo \"=== OS ===\"; cat /etc/os-release | head -3; echo \"=== VERSIONS ===\"; for c in node npm python3 pip3 php composer go docker git mysql psql redis-server nginx; do printf \"%-12s\" \"$c\"; command -v $c >/dev/null 2>&1 && \\($c --version 2>&1 | head -1\\) || echo \"NOT INSTALLED\"; done; echo \"=== DISK ===\"; df -h / | tail -1; echo \"=== MEM ===\"; free -h | head -2; echo \"=== WEB ===\"; ss -lntp 2>/dev/null | head -15')",
+      "Bash(SSH_ASKPASS=/tmp/askpass/ask.sh SSH_ASKPASS_REQUIRE=force DISPLAY=:0 ssh -o StrictHostKeyChecking=accept-new -o PreferredAuthentications=password -o PubkeyAuthentication=no -o NumberOfPasswordPrompts=1 -o ConnectTimeout=15 root@82.115.17.45 'echo \"=== HOME ===\"; ls -la /root; echo \"=== /var/www ===\"; ls -la /var/www 2>/dev/null; echo \"=== /opt ===\"; ls -la /opt; echo \"=== docker ===\"; docker ps --format \"{{.Names}}\\\\t{{.Image}}\\\\t{{.Status}}\\\\t{{.Ports}}\"; echo \"=== caddyfile ===\"; cat /etc/caddy/Caddyfile 2>/dev/null | head -40')",
+      "Bash(SSH_ASKPASS=/tmp/askpass/ask.sh SSH_ASKPASS_REQUIRE=force DISPLAY=:0 ssh -o StrictHostKeyChecking=accept-new -o PreferredAuthentications=password -o PubkeyAuthentication=no -o NumberOfPasswordPrompts=1 -o ConnectTimeout=15 root@82.115.17.45 'echo \"=== Central-Mine-BackEnd ===\"; ls -la /opt/Central-Mine-BackEnd; echo \"=== pkg ===\"; head -40 /opt/Central-Mine-BackEnd/package.json 2>/dev/null; echo \"=== git ===\"; git -C /opt/Central-Mine-BackEnd log --oneline -3 2>&1; git -C /opt/Central-Mine-BackEnd remote -v 2>&1; echo \"=== .env keys ===\"; grep -oE \"^[A-Z_]+\" /opt/Central-Mine-BackEnd/.env 2>/dev/null | head -30')",
+      "Bash(SSH_ASKPASS=/tmp/askpass/ask.sh SSH_ASKPASS_REQUIRE=force DISPLAY=:0 ssh -o StrictHostKeyChecking=accept-new -o PreferredAuthentications=password -o PubkeyAuthentication=no -o NumberOfPasswordPrompts=1 -o ConnectTimeout=15 root@82.115.17.45 'cd /opt/Central-Mine-BackEnd; echo \"=== files ===\"; ls -la | head -30; echo \"=== sizes ===\"; du -sh src node_modules dist .git 2>/dev/null; echo \"=== src tree ===\"; find src -maxdepth 2 -type d | sort; echo \"=== files count ===\"; find src -type f | wc -l; echo \"=== docker-compose ===\"; ls docker-compose* 2>/dev/null; echo \"=== status ===\"; git status --short | head')",
+      "Bash(SSH_ASKPASS=/tmp/askpass/ask.sh SSH_ASKPASS_REQUIRE=force DISPLAY=:0 ssh -o StrictHostKeyChecking=accept-new -o PreferredAuthentications=password -o PubkeyAuthentication=no -o NumberOfPasswordPrompts=1 -o ConnectTimeout=20 root@82.115.17.45 'cd /opt && tar czf - --exclude=node_modules --exclude=dist Central-Mine-BackEnd')",
+      "Bash(echo \"exit=$?\")",
+      "Read(//tmp/**)",
+      "Bash(tar xzf *)",
+      "Bash(npm install *)"
+    ]
+  }
+}

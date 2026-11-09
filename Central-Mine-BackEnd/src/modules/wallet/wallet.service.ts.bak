@@ -1,0 +1,706 @@
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository, DataSource } from 'typeorm';
+import { Cron, CronExpression } from '@nestjs/schedule';
+import Decimal from 'decimal.js';
+
+import { Wallet } from './entities/wallet.entity';
+import { Erc1156Position, PositionStatus } from './entities/erc1156-position.entity';
+import { WalletTransaction, TransactionType } from './entities/wallet-transaction.entity';
+import { SystemSettings } from './entities/system-settings.entity';
+import { LthEngineService } from './services/lth-engine.service';
+
+import { BuyPackageDto } from './dto/buy-package.dto';
+import { TransferDto } from './dto/transfer.dto';
+import { SellPositionDto } from './dto/sell-position.dto';
+import { WithdrawIrrDto } from './dto/withdraw-irr.dto';
+
+@Injectable()
+export class WalletService {
+  constructor(
+    @InjectRepository(Wallet)
+    private readonly walletRepo: Repository<Wallet>,
+    @InjectRepository(Erc1156Position)
+    private readonly positionRepo: Repository<Erc1156Position>,
+    @InjectRepository(WalletTransaction)
+    private readonly transactionRepo: Repository<WalletTransaction>,
+    @InjectRepository(SystemSettings)
+    private readonly settingsRepo: Repository<SystemSettings>,
+    private readonly lthEngine: LthEngineService,
+    private readonly dataSource: DataSource,
+  ) {}
+
+  private generateCardNumber(): string {
+    const prefix = '6376';
+    const randomDigits = Math.floor(100000000000 + Math.random() * 900000000000).toString();
+    return `${prefix}${randomDigits}`;
+  }
+
+  async getOrCreateWallet(userId: string): Promise<Wallet> {
+    let wallet = await this.walletRepo.findOne({ where: { userId } });
+
+    if (!wallet) {
+      let isUnique = false;
+      let cardNumber = '';
+
+      while (!isUnique) {
+        cardNumber = this.generateCardNumber();
+        const exists = await this.walletRepo.findOne({ where: { cardNumber } });
+        if (!exists) isUnique = true;
+      }
+
+      wallet = this.walletRepo.create({
+        userId,
+        cardNumber,
+        baseLth: '0.000000000000',
+        stakedLth: '0.000000000000',
+        withdrawableIrr: '0',
+        balanceTmn: '0.0000',
+        isSystemTreasury: false,
+      });
+
+      await this.walletRepo.save(wallet);
+    }
+
+    return wallet;
+  }
+
+  async getOrCreateTreasuryWallet(): Promise<Wallet> {
+    let treasury = await this.walletRepo.findOne({ where: { isSystemTreasury: true } });
+    if (!treasury) {
+      treasury = this.walletRepo.create({
+        userId: '00000000-0000-0000-0000-000000000000',
+        cardNumber: '6376000000000000',
+        baseLth: '0.000000000000',
+        stakedLth: '0.000000000000',
+        withdrawableIrr: '0',
+        balanceTmn: '0.0000',
+        isSystemTreasury: true,
+      });
+      await this.walletRepo.save(treasury);
+    }
+    return treasury;
+  }
+
+  private async getSystemSettings(): Promise<SystemSettings> {
+    let settings = await this.settingsRepo.findOne({ where: { id: 1 } });
+    if (!settings) {
+      settings = this.settingsRepo.create({
+        lthBaseRateIrr: '4840000000',
+        dailyRewardRate: '0.0034',
+        baseRewardRatio: '30.00',
+        stakingRewardRatio: '70.00',
+        transactionFeePercent: '1.00',
+        stakingLockupDays: 3285,
+      });
+      await this.settingsRepo.save(settings);
+    }
+    return settings;
+  }
+
+  async getCardSummary(userId: string) {
+    const wallet = await this.getOrCreateWallet(userId);
+    const settings = await this.getSystemSettings();
+    const baseRate = new Decimal(settings.lthBaseRateIrr);
+
+    const baseLth = new Decimal(wallet.baseLth || '0');
+    const stakedLth = new Decimal(wallet.stakedLth || '0');
+    const totalLth = baseLth.plus(stakedLth);
+
+    const conversion = this.lthEngine.lthToIrr(totalLth.toString(), baseRate);
+
+    return {
+      walletId: wallet.id,
+      cardNumber: wallet.cardNumber.replace(/(\d{4})/g, '$1 ').trim(),
+      rawCardNumber: wallet.cardNumber,
+      baseVolumeLth: baseLth.toFixed(8),
+      stakedLth: stakedLth.toFixed(8),
+      withdrawableIrr: Number(wallet.withdrawableIrr || '0').toLocaleString('fa-IR'),
+      rawWithdrawableIrr: wallet.withdrawableIrr || '0',
+      totalLth: totalLth.toFixed(8),
+      totalIrr: Number(conversion.irrValue).toLocaleString('fa-IR'),
+      amountTmn: Number(wallet.balanceTmn || '0').toFixed(2),
+      amountToman: Number(conversion.tomanValue).toLocaleString('fa-IR'),
+    };
+  }
+
+  async getUserPositions(userId: string) {
+    const wallet = await this.getOrCreateWallet(userId);
+    return this.positionRepo.find({
+      where: { wallet: { id: wallet.id }, status: PositionStatus.ACTIVE },
+      order: { createdAt: 'DESC' },
+    });
+  }
+
+  async getUserTransactions(userId: string) {
+    const wallet = await this.getOrCreateWallet(userId);
+    return this.transactionRepo.find({
+      where: { wallet: { id: wallet.id } },
+      order: { createdAt: 'DESC' },
+      take: 20,
+    });
+  }
+
+  async buyPackage(userId: string, dto: BuyPackageDto) {
+    let rawIrr: Decimal;
+    if (dto.irrAmount) {
+      rawIrr = new Decimal(dto.irrAmount);
+    } else if (dto.tomanAmount) {
+      rawIrr = new Decimal(dto.tomanAmount).times(10);
+    } else {
+      throw new BadRequestException('مبلغ ریال یا تومان الزامی است.');
+    }
+
+    if (rawIrr.lessThanOrEqualTo(0)) {
+      throw new BadRequestException('مبلغ خرید نامعتبر است.');
+    }
+
+    const settings = await this.getSystemSettings();
+    const baseRate = new Decimal(settings.lthBaseRateIrr);
+    const feePercent = new Decimal(settings.transactionFeePercent).dividedBy(100);
+
+    const feeIrr = rawIrr.times(feePercent);
+    const netIrr = rawIrr.minus(feeIrr);
+
+    const lthConversion = this.lthEngine.irrToLth(netIrr.toString(), baseRate);
+    const lthAmount = new Decimal(lthConversion.dbValue);
+
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
+    try {
+      const userWallet = await queryRunner.manager.findOneOrFail(Wallet, {
+        where: { userId },
+        lock: { mode: 'pessimistic_write' },
+      });
+
+      const treasuryWallet = await this.getOrCreateTreasuryWallet();
+
+      userWallet.baseLth = new Decimal(userWallet.baseLth).plus(lthAmount).toFixed(12);
+      await queryRunner.manager.save(userWallet);
+
+      treasuryWallet.withdrawableIrr = new Decimal(treasuryWallet.withdrawableIrr).plus(feeIrr).toFixed(0);
+      await queryRunner.manager.save(treasuryWallet);
+
+      const now = new Date();
+      const day = String(now.getDate()).padStart(2, '0');
+      const month = String(now.getMonth() + 1).padStart(2, '0');
+      const year = now.getFullYear();
+      const dateTag = `${day}.${month}.${year}`;
+
+      const motherId = `erc1156povnftmotherid${dateTag}`;
+      const uniqueSuffix = Math.random().toString(36).substring(2, 7).toUpperCase();
+      const tokenId = `${motherId}_${uniqueSuffix}`;
+
+      const unlockAt = new Date(now.getTime() + settings.stakingLockupDays * 24 * 60 * 60 * 1000);
+
+      const position = queryRunner.manager.create(Erc1156Position, {
+        tokenId,
+        motherId,
+        originDate: now,
+        amountLth: lthAmount.toFixed(12),
+        accruedStakeLth: '0.000000000000',
+        unlockAt,
+        status: PositionStatus.ACTIVE,
+        wallet: userWallet,
+      });
+      await queryRunner.manager.save(position);
+
+      const tx = queryRunner.manager.create(WalletTransaction, {
+        type: TransactionType.DEPOSIT,
+        amountLth: lthAmount.toFixed(12),
+        amountIrr: rawIrr.toFixed(0),
+        feeLth: '0',
+        feeIrr: feeIrr.toFixed(0),
+        referenceTokenId: tokenId,
+        status: 'SUCCESS',
+        wallet: userWallet,
+      });
+      await queryRunner.manager.save(tx);
+
+      await queryRunner.commitTransaction();
+
+      return {
+        success: true,
+        tokenId,
+        motherId,
+        boughtLth: lthConversion.displayValue,
+        exactLth: lthConversion.dbValue,
+        netIrr: netIrr.toFixed(0),
+        feeIrr: feeIrr.toFixed(0),
+        unlockAt,
+      };
+    } catch (err) {
+      await queryRunner.rollbackTransaction();
+      throw err;
+    } finally {
+      await queryRunner.release();
+    }
+  }
+
+  async findByCardNumber(cardNumber: string): Promise<Wallet> {
+    const cleanCard = cardNumber.replace(/\s+/g, '');
+    const wallet = await this.walletRepo.findOne({ where: { cardNumber: cleanCard } });
+    if (!wallet) {
+      throw new NotFoundException('شماره کارت مقصد یافت نشد.');
+    }
+    return wallet;
+  }
+
+  async transferP2P(senderUserId: string, dto: TransferDto) {
+    const cleanTargetCard = dto.targetCardNumber.replace(/\s+/g, '');
+    const sendAmount = new Decimal(dto.amountLth);
+
+    if (sendAmount.lessThanOrEqualTo(0)) {
+      throw new BadRequestException('مبلغ انتقال نامعتبر است.');
+    }
+
+    const settings = await this.getSystemSettings();
+    const feeRate = new Decimal(settings.transactionFeePercent).dividedBy(100);
+    const baseRate = new Decimal(settings.lthBaseRateIrr);
+
+    const feeLth = sendAmount.times(feeRate);
+    const netLth = sendAmount.minus(feeLth);
+    const amountIrr = sendAmount.times(baseRate).toFixed(0);
+    const feeIrr = feeLth.times(baseRate).toFixed(0);
+
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
+    try {
+      const senderWallet = await queryRunner.manager.findOneOrFail(Wallet, {
+        where: { userId: senderUserId },
+        lock: { mode: 'pessimistic_write' },
+      });
+
+      const senderBalance = new Decimal(senderWallet.baseLth);
+      if (senderBalance.lessThan(sendAmount)) {
+        throw new BadRequestException('موجودی LTH نقدشونده شما برای این انتقال کافی نیست.');
+      }
+
+      const receiverWallet = await queryRunner.manager.findOne(Wallet, {
+        where: { cardNumber: cleanTargetCard },
+        lock: { mode: 'pessimistic_write' },
+      });
+
+      if (!receiverWallet) {
+        throw new NotFoundException('شماره کارت مقصد معتبر نیست.');
+      }
+
+      if (receiverWallet.id === senderWallet.id) {
+        throw new BadRequestException('امکان انتقال به کارت خودتان وجود ندارد.');
+      }
+
+      const treasuryWallet = await this.getOrCreateTreasuryWallet();
+
+      senderWallet.baseLth = senderBalance.minus(sendAmount).toFixed(12);
+      await queryRunner.manager.save(senderWallet);
+
+      receiverWallet.baseLth = new Decimal(receiverWallet.baseLth).plus(netLth).toFixed(12);
+      await queryRunner.manager.save(receiverWallet);
+
+      treasuryWallet.baseLth = new Decimal(treasuryWallet.baseLth).plus(feeLth).toFixed(12);
+      await queryRunner.manager.save(treasuryWallet);
+
+      const txOut = queryRunner.manager.create(WalletTransaction, {
+        type: TransactionType.P2P_OUT,
+        amountLth: sendAmount.toFixed(12),
+        amountIrr,
+        feeLth: feeLth.toFixed(12),
+        feeIrr,
+        targetCardNumber: cleanTargetCard,
+        status: 'SUCCESS',
+        wallet: senderWallet,
+      });
+      await queryRunner.manager.save(txOut);
+
+      const txIn = queryRunner.manager.create(WalletTransaction, {
+        type: TransactionType.P2P_IN,
+        amountLth: netLth.toFixed(12),
+        amountIrr,
+        feeLth: '0',
+        feeIrr: '0',
+        targetCardNumber: senderWallet.cardNumber,
+        status: 'SUCCESS',
+        wallet: receiverWallet,
+      });
+      await queryRunner.manager.save(txIn);
+
+      await queryRunner.commitTransaction();
+
+      return {
+        success: true,
+        sentTotalLth: sendAmount.toFixed(8),
+        receivedNetLth: netLth.toFixed(8),
+        feeLth: feeLth.toFixed(8),
+        targetCardNumber: receiverWallet.cardNumber.replace(/(\d{4})/g, '$1 ').trim(),
+      };
+    } catch (err) {
+      await queryRunner.rollbackTransaction();
+      throw err;
+    } finally {
+      await queryRunner.release();
+    }
+  }
+
+  @Cron(CronExpression.EVERY_DAY_AT_MIDNIGHT)
+  async distributeDailyYield() {
+    const settings = await this.getSystemSettings();
+    const yieldRate = new Decimal(settings.dailyRewardRate);
+    const baseRatio = Number(settings.baseRewardRatio);
+    const stakeRatio = Number(settings.stakingRewardRatio);
+
+    const activeWallets = await this.walletRepo
+      .createQueryBuilder('wallet')
+      .where('wallet.isSystemTreasury = false')
+      .andWhere('wallet.baseLth > 0')
+      .getMany();
+
+    const results = [];
+
+    for (const wallet of activeWallets) {
+      const yieldCalc = this.lthEngine.calculateDailyYield(
+        wallet.baseLth,
+        baseRatio,
+        stakeRatio,
+        yieldRate,
+      );
+
+      const queryRunner = this.dataSource.createQueryRunner();
+      await queryRunner.connect();
+      await queryRunner.startTransaction();
+
+      try {
+        const lockedWallet = await queryRunner.manager.findOneOrFail(Wallet, {
+          where: { id: wallet.id },
+          lock: { mode: 'pessimistic_write' },
+        });
+
+        lockedWallet.baseLth = new Decimal(lockedWallet.baseLth)
+          .plus(new Decimal(yieldCalc.negativeRewardLth))
+          .toFixed(12);
+
+        lockedWallet.stakedLth = new Decimal(lockedWallet.stakedLth)
+          .plus(new Decimal(yieldCalc.stakedRewardLth))
+          .toFixed(12);
+
+        await queryRunner.manager.save(lockedWallet);
+
+        const activePositions = await queryRunner.manager.find(Erc1156Position, {
+          where: { wallet: { id: lockedWallet.id }, status: PositionStatus.ACTIVE },
+        });
+
+        if (activePositions.length > 0) {
+          const stakePerPos = new Decimal(yieldCalc.stakedRewardLth).dividedBy(activePositions.length);
+          for (const pos of activePositions) {
+            pos.accruedStakeLth = new Decimal(pos.accruedStakeLth).plus(stakePerPos).toFixed(12);
+            await queryRunner.manager.save(pos);
+          }
+        }
+
+        const tx = queryRunner.manager.create(WalletTransaction, {
+          type: TransactionType.STAKING_REWARD,
+          amountLth: yieldCalc.totalRewardLth,
+          amountIrr: yieldCalc.totalRewardIrr,
+          feeLth: '0',
+          feeIrr: '0',
+          status: 'SUCCESS',
+          wallet: lockedWallet,
+        });
+        await queryRunner.manager.save(tx);
+
+        await queryRunner.commitTransaction();
+
+        results.push({
+          walletId: lockedWallet.id,
+          cardNumber: lockedWallet.cardNumber,
+          addedBaseLth: yieldCalc.negativeRewardLth,
+          addedStakedLth: yieldCalc.stakedRewardLth,
+          totalRewardLth: yieldCalc.totalRewardLth,
+        });
+      } catch (err) {
+        await queryRunner.rollbackTransaction();
+        throw err;
+      } finally {
+        await queryRunner.release();
+      }
+    }
+
+    return {
+      processedCount: results.length,
+      details: results,
+    };
+  }
+
+  async sellPosition(userId: string, dto: SellPositionDto) {
+    const sellAmount = new Decimal(dto.sellAmountLth);
+    if (sellAmount.lessThanOrEqualTo(0)) {
+      throw new BadRequestException('مبلغ فروش نامعتبر است.');
+    }
+
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
+    try {
+      const userWallet = await queryRunner.manager.findOneOrFail(Wallet, {
+        where: { userId },
+        lock: { mode: 'pessimistic_write' },
+      });
+
+      const position = await queryRunner.manager.findOne(Erc1156Position, {
+        where: {
+          tokenId: dto.tokenId,
+          wallet: { id: userWallet.id },
+          status: PositionStatus.ACTIVE,
+        },
+        lock: { mode: 'pessimistic_write' },
+      });
+
+      if (!position) {
+        throw new NotFoundException('پوزیشن اجماع فعال با این شناسه برای شما یافت نشد.');
+      }
+
+      if (sellAmount.greaterThan(new Decimal(position.amountLth))) {
+        throw new BadRequestException('مبلغ درخواستی بیشتر از حجم نقدشونده این پوزیشن است.');
+      }
+
+      if (sellAmount.greaterThan(new Decimal(userWallet.baseLth))) {
+        throw new BadRequestException('موجودی نقدشونده کیف‌پول شما کافی نیست.');
+      }
+
+      const liquidation = this.lthEngine.calculatePositionLiquidation(
+        position.amountLth,
+        position.accruedStakeLth,
+        sellAmount.toString(),
+      );
+
+      const treasuryWallet = await this.getOrCreateTreasuryWallet();
+
+      userWallet.baseLth = new Decimal(userWallet.baseLth).minus(liquidation.soldLth).toFixed(12);
+      userWallet.stakedLth = new Decimal(userWallet.stakedLth).minus(liquidation.deductedStakeLth).toFixed(12);
+      userWallet.withdrawableIrr = new Decimal(userWallet.withdrawableIrr).plus(liquidation.netIrrToUser).toFixed(0);
+      await queryRunner.manager.save(userWallet);
+
+      treasuryWallet.stakedLth = new Decimal(treasuryWallet.stakedLth).plus(liquidation.deductedStakeLth).toFixed(12);
+      treasuryWallet.withdrawableIrr = new Decimal(treasuryWallet.withdrawableIrr).plus(liquidation.feeIrr).toFixed(0);
+      await queryRunner.manager.save(treasuryWallet);
+
+      position.amountLth = liquidation.remainingNegativeLth;
+      position.accruedStakeLth = liquidation.remainingStakedLth;
+
+      if (new Decimal(position.amountLth).isZero()) {
+        position.status = PositionStatus.TRANSFERRED_TO_TREASURY;
+      } else {
+        position.status = PositionStatus.ACTIVE;
+      }
+      await queryRunner.manager.save(position);
+
+      const tx = queryRunner.manager.create(WalletTransaction, {
+        type: TransactionType.WITHDRAW,
+        amountLth: liquidation.soldLth,
+        amountIrr: liquidation.grossIrr,
+        feeLth: '0',
+        feeIrr: liquidation.feeIrr,
+        referenceTokenId: position.tokenId,
+        status: 'SUCCESS',
+        wallet: userWallet,
+      });
+      await queryRunner.manager.save(tx);
+
+      await queryRunner.commitTransaction();
+
+      return {
+        success: true,
+        soldLth: liquidation.soldLth,
+        deductedStakeLth: liquidation.deductedStakeLth,
+        remainingPositionLth: liquidation.remainingNegativeLth,
+        grossIrr: liquidation.grossIrr,
+        feeIrr: liquidation.feeIrr,
+        netIrrToUser: liquidation.netIrrToUser,
+        netTomanToUser: new Decimal(liquidation.netIrrToUser).dividedBy(10).toFixed(0),
+      };
+    } catch (err) {
+      await queryRunner.rollbackTransaction();
+      throw err;
+    } finally {
+      await queryRunner.release();
+    }
+  }
+
+  async requestWithdrawal(userId: string, dto: WithdrawIrrDto) {
+    const withdrawAmount = new Decimal(dto.amountIrr);
+    if (withdrawAmount.lessThanOrEqualTo(0)) {
+      throw new BadRequestException('مبلغ برداشت نامعتبر است.');
+    }
+
+    let cleanSheba = dto.shebaNumber.replace(/\s+/g, '').toUpperCase();
+    if (!cleanSheba.startsWith('IR')) {
+      cleanSheba = `IR${cleanSheba}`;
+    }
+
+    if (cleanSheba.length !== 26) {
+      throw new BadRequestException('شماره شبا باید ۲۴ رقم عددی پس از IR باشد.');
+    }
+
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
+    try {
+      const userWallet = await queryRunner.manager.findOneOrFail(Wallet, {
+        where: { userId },
+        lock: { mode: 'pessimistic_write' },
+      });
+
+      const currentWithdrawable = new Decimal(userWallet.withdrawableIrr || '0');
+      if (currentWithdrawable.lessThan(withdrawAmount)) {
+        throw new BadRequestException('موجودی ریالی قابل برداشت شما برای این درخواست کافی نیست.');
+      }
+
+      userWallet.withdrawableIrr = currentWithdrawable.minus(withdrawAmount).toFixed(0);
+      await queryRunner.manager.save(userWallet);
+
+      const tx = queryRunner.manager.create(WalletTransaction, {
+        type: TransactionType.WITHDRAW,
+        amountLth: '0.000000000000',
+        amountIrr: withdrawAmount.toFixed(0),
+        feeLth: '0',
+        feeIrr: '0',
+        targetCardNumber: cleanSheba,
+        status: 'PENDING',
+        wallet: userWallet,
+      });
+      await queryRunner.manager.save(tx);
+
+      await queryRunner.commitTransaction();
+
+      return {
+        success: true,
+        withdrawalId: tx.id,
+        amountIrr: withdrawAmount.toFixed(0),
+        amountToman: withdrawAmount.dividedBy(10).toFixed(0),
+        destinationSheba: cleanSheba,
+        status: 'PENDING',
+        remainingWithdrawableIrr: userWallet.withdrawableIrr,
+      };
+    } catch (err) {
+      await queryRunner.rollbackTransaction();
+      throw err;
+    } finally {
+      await queryRunner.release();
+    }
+  }
+
+  /**
+   * دریافت لیست درخواست‌های برداشت در انتظار تسویه پایا
+   */
+  async getPendingWithdrawals() {
+    return this.transactionRepo.find({
+      where: {
+        type: TransactionType.WITHDRAW,
+        status: 'PENDING',
+      },
+      relations: ['wallet'],
+      order: { createdAt: 'ASC' },
+    });
+  }
+
+  /**
+   * تایید تسویه پایا (انتقال انجام شد)
+   */
+  async approveWithdrawal(transactionId: string, trackingCode?: string) {
+    const tx = await this.transactionRepo.findOne({
+      where: { id: transactionId, type: TransactionType.WITHDRAW },
+    });
+    if (!tx) {
+      throw new NotFoundException('تراکنش برداشت یافت نشد.');
+    }
+    if (tx.status !== 'PENDING') {
+      throw new BadRequestException('این تراکنش قبلاً تعیین تکلیف شده است.');
+    }
+
+    tx.status = 'SUCCESS';
+    if (trackingCode) {
+      tx.referenceTokenId = trackingCode;
+    }
+    await this.transactionRepo.save(tx);
+
+    return {
+      success: true,
+      message: 'تراکنش با موفقیت تایید و تسویه شد.',
+      transactionId: tx.id,
+      trackingCode: tx.referenceTokenId,
+    };
+  }
+
+  /**
+   * رد درخواست برداشت و بازگشت آنی مبلغ ریالی به کیف پول کاربر (Refund)
+   */
+  async rejectWithdrawal(transactionId: string, reason?: string) {
+    const tx = await this.transactionRepo.findOne({
+      where: { id: transactionId, type: TransactionType.WITHDRAW },
+      relations: ['wallet'],
+    });
+    if (!tx) {
+      throw new NotFoundException('تراکنش برداشت یافت نشد.');
+    }
+    if (tx.status !== 'PENDING') {
+      throw new BadRequestException('این تراکنش در وضعیت در انتظار قرار ندارد.');
+    }
+
+    // ۱. تغییر وضعیت تراکنش به ناموفق/مرجوعی
+    tx.status = 'FAILED';
+    if (reason) {
+      tx.referenceTokenId = `REJECTED: ${reason}`;
+    }
+    await this.transactionRepo.save(tx);
+
+    // ۲. برگشت امن مبلغ ریالی کسرشده به موجودی قابل برداشت کاربر
+    const wallet = tx.wallet;
+    wallet.withdrawableIrr = new Decimal(wallet.withdrawableIrr)
+      .plus(new Decimal(tx.amountIrr))
+      .toFixed(0);
+    await this.walletRepo.save(wallet);
+
+    return {
+      success: true,
+      message: 'درخواست برداشت رد شد و مبلغ به کیف پول کاربر بازگردانده شد.',
+      refundedAmountIrr: tx.amountIrr,
+      newWithdrawableIrr: wallet.withdrawableIrr,
+    };
+  }
+
+  /**
+   * تولید متن استاندارد فایل دسته‌ای پایا جهت ایمپورت در سامانه بانک
+   * ستون‌ها: شماره شبا | مبلغ به ریال | شناسه پیگیری | توضیحات
+   */
+  async exportPayaBatchFile() {
+    const pendings = await this.getPendingWithdrawals();
+    if (pendings.length === 0) {
+      return {
+        count: 0,
+        csv: 'شماره شبا,مبلغ (ریال),شناسه پیگیری,شرح بابت\n',
+      };
+    }
+
+    let csvContent = 'شماره شبا,مبلغ (ریال),شناسه پیگیری,شرح بابت\n';
+    for (const tx of pendings) {
+      const sheba = tx.targetCardNumber || '';
+      const amount = tx.amountIrr;
+      const id = tx.id;
+      const desc = 'تسویه سود Central Mine';
+      csvContent += `${sheba},${amount},${id},${desc}\n`;
+    }
+
+    return {
+      count: pendings.length,
+      totalAmountIrr: pendings
+        .reduce((sum, item) => sum.plus(new Decimal(item.amountIrr)), new Decimal(0))
+        .toFixed(0),
+      csv: csvContent,
+    };
+  }
+}

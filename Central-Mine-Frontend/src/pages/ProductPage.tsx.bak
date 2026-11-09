@@ -1,0 +1,480 @@
+import SupportModal from "../components/SupportModal"
+import { getProductViews } from "../lib/views"
+import servicesIcon from "../assets/services-icon.png"
+import appIcon from "../assets/app-icon.png"
+import { useState, useEffect } from "react"
+import { useParams, Link, useNavigate } from "react-router-dom"
+import { 
+  Star, 
+  Eye, 
+  ShieldCheck, 
+  Truck, 
+  RotateCcw, 
+  CreditCard, 
+  Plus, 
+  ChevronLeft, 
+  Info, 
+  FileText, 
+  Headphones, 
+  User, 
+  Zap, 
+  Shield, 
+  Layers, 
+  CheckCircle2,
+  PackageCheck
+} from "lucide-react"
+import AppShell from "../components/AppShell"
+import Header from "../components/Header"
+import Footer from "../components/Footer"
+import AboutModal from "../components/AboutModal"
+import TermsModal from "../components/TermsModal"
+import { getProductById, type Product } from "../api/products"
+
+import car from "../assets/actions/car.png"
+import cartIcon from "../assets/actions/cart.png"
+import gift from "../assets/actions/gift.png"
+import grid from "../assets/actions/grid.png"
+import headset from "../assets/actions/headset.png"
+import phoneIcon from "../assets/actions/phone.png"
+import shieldIcon from "../assets/actions/shield.png"
+
+import cdRings from "../assets/brands/cd-rings.jpg"
+import drip from "../assets/brands/drip.png"
+import feny from "../assets/brands/feny.png"
+import hofinally from "../assets/brands/hofinally.jpg"
+import kkBownakmark from "../assets/brands/kk-bownakmark.png"
+import mand from "../assets/brands/mand.jpg"
+import tehranOutlet from "../assets/brands/tehran-outlet.jpg"
+
+const BRANDS = [
+  { key: "drip", src: drip, name: "Isatiris" },
+  { key: "feny", src: feny, name: "Feny" },
+  { key: "hofinally", src: hofinally, name: "Hofinally" },
+  { key: "tehran-outlet", src: tehranOutlet, name: "Tehran Outlet" },
+  { key: "kk-bownakmark", src: kkBownakmark, name: "KK Bownakmark" },
+  { key: "cd-rings", src: cdRings, name: "Dantelos" },
+  { key: "mand", src: mand, name: "Mand" },
+]
+
+const QUICK_ACTIONS = [
+  { key: "cart", src: cartIcon, label: "فروشگاه" },
+  { key: "gift", src: gift, label: "تخفیف‌ها" },
+  { key: "car", src: car, label: "ارسال اکسپرس" },
+  { key: "phone", src: phoneIcon, label: "کالای دیجیتال" },
+  { key: "shield", src: shieldIcon, label: "گارانتی" },
+  { key: "headset", src: headset, label: "پشتیبانی" },
+  { key: "grid", src: grid, label: "دسته‌بندی‌ها" },
+]
+
+const DEFAULT_ATTRIBUTES = [
+  { key: "نوع کالا (Item Type)", value: "کاپشن و جاکت (Blouson)" },
+  { key: "فصل (Season)", value: "پاییزه و زمستانه (Autumn/Winter)" },
+  { key: "جنس الیاف (Material)", value: "۱۰۰٪ پلی‌استر مقاوم (100% Polyester)" },
+  { key: "وزن پارچه (Fabric Weight)", value: "۳۴۰ گرم استاندارد (340g)" },
+  { key: "نوع دوخت (Fabric Type)", value: "بافت متراکم صنعتی (Knitted)" },
+  { key: "ویژگی کاربردی (Feature)", value: "راحت و کژوال روزمره (Leisure)" },
+]
+
+export default function ProductPage() {
+  const { id } = useParams<{ id: string }>()
+  const navigate = useNavigate()
+
+  const [product, setProduct] = useState<Product | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [selectedImage, setSelectedImage] = useState<string>("")
+  const [addedToast, setAddedToast] = useState(false)
+
+  const [aboutOpen, setAboutOpen] = useState(false)
+  const [termsOpen, setTermsOpen] = useState(false)
+  const [supportOpen, setSupportOpen] = useState(false)
+
+  useEffect(() => {
+    if (!id) return
+    setLoading(true)
+    getProductById(id)
+      .then((data) => {
+        setProduct(data)
+        const firstSku = data.skus?.[0]
+        if (firstSku?.images?.[0]?.url) {
+          setSelectedImage(firstSku.images[0].url)
+        }
+      })
+      .catch(() => setProduct(null))
+      .finally(() => setLoading(false))
+  }, [id])
+
+  const sku = product?.skus?.[0]
+  const price = sku?.price ? Number(sku.price) : 30000000
+  const images = sku?.images?.map(i => i.url) || [selectedImage || "/placeholder.png"]
+
+      const handleAddToCart = () => {
+    try {
+      const productId = String(product?.id || id || "1")
+      const currentPrice = price
+      const currentImage = selectedImage || images[0]
+      const productName = product?.name || "محصول ماین"
+
+      let cart: any[] = []
+      const saved = localStorage.getItem("centralmine_cart_item")
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved)
+          cart = Array.isArray(parsed) ? parsed : [parsed]
+        } catch {
+          cart = []
+        }
+      }
+
+      const existingIndex = cart.findIndex((item: any) => String(item.id) === productId)
+      if (existingIndex > -1) {
+        cart[existingIndex].quantity = (Number(cart[existingIndex].quantity) || 1) + 1
+      } else {
+        cart.push({
+          id: productId,
+          name: productName,
+          price: currentPrice,
+          quantity: 1,
+          image: currentImage
+        })
+      }
+
+      localStorage.setItem("centralmine_cart_item", JSON.stringify(cart))
+      window.dispatchEvent(new Event("cart_updated"))
+    } catch (e) {
+      console.error(e)
+    }
+    setAddedToast(true)
+  }
+
+  const handleProceedCheckout = () => {
+    handleAddToCart()
+    navigate("/cart")
+  }
+
+  return (
+    <AppShell>
+      <Header />
+
+      <main className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-6 w-full flex-1 space-y-8" dir="rtl">
+        
+        {/* ۱. ردیف برندهای همکار */}
+        <section>
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-sm sm:text-base font-bold text-slate-800 flex items-center gap-2">
+              <span className="h-4 w-1 bg-brand-500 rounded-full inline-block"></span>
+              برندهای ما
+            </h2>
+            <Link to="/#products" className="text-xs font-semibold text-brand-600 hover:text-brand-700 flex items-center gap-0.5">
+              <span>مشاهده همه</span>
+              <ChevronLeft size={14} />
+            </Link>
+          </div>
+
+          <div className="grid grid-cols-4 sm:grid-cols-7 gap-3">
+            {BRANDS.map((brand) => (
+              <Link
+                key={brand.key}
+                to="/#products"
+                className="flex flex-col items-center justify-center p-2 rounded-2xl bg-white border border-slate-100 shadow-xs hover:shadow-md hover:border-brand-200 transition"
+              >
+                <div className="aspect-square w-full rounded-xl bg-slate-50 flex items-center justify-center p-1.5 overflow-hidden">
+                  <img src={brand.src} alt={brand.name} className="h-full w-full object-contain" />
+                </div>
+                <span className="mt-1.5 text-[11px] font-medium text-slate-600 truncate">{brand.name}</span>
+              </Link>
+            ))}
+          </div>
+        </section>
+
+        {/* ۲. ردیف آیکون‌های صورتی دسترسی سریع */}
+        <section>
+          <div className="grid grid-cols-4 sm:grid-cols-7 gap-3">
+            {QUICK_ACTIONS.map((action) => {
+              if (action.key === "cart" || action.key === "grid") {
+                return (
+                  <Link
+                    key={action.key}
+                    to="/#products"
+                    className="flex flex-col items-center p-2 sm:p-2.5 rounded-2xl bg-white border border-slate-100 hover:bg-brand-50/50 hover:border-brand-300 shadow-2xs transition group cursor-pointer"
+                  >
+                    <div className="h-10 w-10 sm:h-11 sm:w-11 rounded-2xl overflow-hidden shadow-2xs group-hover:scale-105 transition">
+                      <img src={action.src} alt={action.label} className="h-full w-full object-cover" />
+                    </div>
+                    <span className="mt-1 sm:mt-1.5 text-[11px] sm:text-xs font-bold text-slate-700 group-hover:text-brand-600 transition truncate">
+                      {action.label}
+                    </span>
+                  </Link>
+                )
+              }
+
+              if (action.key === "headset") {
+                return (
+                  <button
+                    key={action.key}
+                    type="button"
+                    onClick={() => setSupportOpen(true)}
+                    className="flex flex-col items-center p-2 sm:p-2.5 rounded-2xl bg-white border border-slate-100 hover:bg-brand-50/50 hover:border-brand-300 shadow-2xs transition group cursor-pointer"
+                  >
+                    <div className="h-10 w-10 sm:h-11 sm:w-11 rounded-2xl overflow-hidden shadow-2xs group-hover:scale-105 transition">
+                      <img src={action.src} alt={action.label} className="h-full w-full object-cover" />
+                    </div>
+                    <span className="mt-1 sm:mt-1.5 text-[11px] sm:text-xs font-bold text-slate-700 group-hover:text-brand-600 transition truncate">
+                      {action.label}
+                    </span>
+                  </button>
+                )
+              }
+
+              return (
+                <div
+                  key={action.key}
+                  className="flex flex-col items-center p-2 sm:p-2.5 rounded-2xl bg-white border border-slate-100/80 shadow-2xs select-none"
+                >
+                  <div className="h-10 w-10 sm:h-11 sm:w-11 rounded-2xl overflow-hidden shadow-2xs">
+                    <img src={action.src} alt={action.label} className="h-full w-full object-cover" />
+                  </div>
+                  <span className="mt-1 sm:mt-1.5 text-[11px] sm:text-xs font-medium text-slate-600 truncate">
+                    {action.label}
+                  </span>
+                </div>
+              )
+            })}
+          </div>
+        </section>
+
+        {/* نوار ابزار ۵گانه شناور با ترتیب معکوس */}
+        <section className="bg-white rounded-2xl border border-slate-100 shadow-xs px-4 py-3">
+          <div className="grid grid-cols-5 divide-x divide-x-reverse divide-slate-100 text-center">
+            <Link to="/login" className="flex items-center justify-center gap-1.5 text-xs font-medium text-slate-700 hover:text-brand-600 transition">
+              <User size={16} className="text-brand-500" />
+              <span className="hidden sm:inline">حساب</span>
+            </Link>
+            <Link to="/#products" className="flex items-center justify-center gap-1.5 text-xs font-medium text-slate-700 hover:text-brand-600 transition">
+              <img src={servicesIcon} alt="خدمات" className="h-5 w-7 sm:h-5.5 sm:w-8 object-contain inline-block drop-shadow-2xs transition group-hover:scale-105" />
+              <span className="hidden sm:inline">خدمات</span>
+            </Link>
+            <button
+              type="button"
+              onClick={() => setTermsOpen(true)}
+              className="flex items-center justify-center gap-1.5 text-xs font-medium text-slate-700 hover:text-brand-600 transition cursor-pointer"
+            >
+              <Headphones size={16} className="text-brand-500" />
+              <span className="hidden sm:inline">پشتیبانی</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setTermsOpen(true)}
+              className="flex items-center justify-center gap-1.5 text-xs font-medium text-slate-700 hover:text-brand-600 transition cursor-pointer"
+            >
+              <FileText size={16} className="text-brand-500" />
+              <span className="hidden sm:inline">قوانین</span>
+            </button>
+            <button 
+              type="button" 
+              onClick={() => setAboutOpen(true)} 
+              className="flex items-center justify-center gap-1.5 text-xs font-medium text-slate-700 hover:text-brand-600 transition cursor-pointer"
+            >
+              <Info size={16} className="text-brand-500" />
+              <span className="hidden sm:inline">درباره ما</span>
+            </button>
+          </div>
+        </section>
+
+        {/* ۴. بدنه اصلی صفحه کالا */}
+        {loading ? (
+          <div className="h-96 rounded-3xl bg-white border border-slate-100 animate-pulse flex items-center justify-center text-slate-400 text-sm">
+            در حال فراخوانی مشخصات محصول...
+          </div>
+        ) : (
+          <div className="space-y-6">
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+              
+              {/* ستون اصلی مشخصات و تصویر کالا (۸ ستون) */}
+              <div className="lg:col-span-8 bg-white rounded-3xl border border-slate-100 p-6 sm:p-8 shadow-xs space-y-8">
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-center">
+                  
+                  {/* بخش نمایش تصویر و گالری */}
+                  <div className="space-y-3">
+                    <div className="aspect-square w-full rounded-2xl bg-slate-50 border border-slate-100 p-4 flex items-center justify-center overflow-hidden relative group">
+                      <img 
+                        src={selectedImage || images[0]} 
+                        alt={product?.name || "تصویر محصول"} 
+                        className="h-full w-full object-contain transition duration-300 group-hover:scale-105"
+                      />
+                      <span className="absolute top-3 right-3 px-2.5 py-1 rounded-lg bg-brand-50 text-[11px] font-bold text-brand-600 border border-brand-100">
+                        تضمین اصالت فیزیکی
+                      </span>
+                    </div>
+
+                    {images.length > 1 && (
+                      <div className="flex gap-2 overflow-x-auto pb-1">
+                        {images.map((img, idx) => (
+                          <button
+                            key={idx}
+                            type="button"
+                            onClick={() => setSelectedImage(img)}
+                            className={`h-16 w-16 rounded-xl border p-1 bg-slate-50 flex-shrink-0 transition ${
+                              selectedImage === img ? "border-brand-500 ring-2 ring-brand-500/20" : "border-slate-200 opacity-70 hover:opacity-100"
+                            }`}
+                          >
+                            <img src={img} alt="" className="h-full w-full object-contain" />
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* عنوان، امتیاز، بازدید و قیمت */}
+                  <div className="space-y-6">
+                    <div>
+                      <h1 className="text-xl sm:text-2xl font-extrabold text-slate-900 leading-snug">
+                        {product?.name || "جاکت خوب"}
+                      </h1>
+                      <p className="text-xs text-slate-400 mt-1">
+                        فروشگاه ماین
+                      </p>
+                    </div>
+
+                    {/* رتبه و آمار بازدید */}
+                    <div className="flex items-center gap-4 text-xs text-slate-500 pb-4 border-b border-slate-100">
+                      <div className="flex items-center gap-1 text-amber-500 font-bold">
+                        <Star size={16} className="fill-amber-400 text-amber-400" />
+                        <span>{product?.rating ? product.rating.toFixed(1) : "۵.۰"}</span>
+                      </div>
+                      <span className="text-slate-300">|</span>
+                      <div className="flex items-center gap-1 text-slate-400">
+                        <Eye size={15} />
+                        <span>بازدید: {getProductViews(product?.id || id, product?.name, product?.seen).toLocaleString("fa-IR")} مرتبه</span>
+                      </div>
+                      <span className="text-slate-300">|</span>
+                      <span className="text-emerald-600 font-medium flex items-center gap-1">
+                        <PackageCheck size={15} />
+                        آماده ارسال
+                      </span>
+                    </div>
+
+                    {/* کادر مدرن قیمت */}
+                    <div className="p-4 rounded-2xl bg-linear-to-l from-brand-50 to-pink-50/30 border border-brand-100/60">
+                      <span className="text-[11px] text-slate-400 block mb-1">قیمت نهایی مصرف‌کننده:</span>
+                      <div className="flex items-baseline gap-2">
+                        <span className="text-xs text-slate-400 font-mono">IRR</span>
+                        <span className="text-2xl sm:text-3xl font-black text-brand-600 tracking-tight font-mono">
+                          {price.toLocaleString("fa-IR")}
+                        </span>
+                        <span className="text-xs font-bold text-slate-600 mr-1">ریال</span>
+                      </div>
+                      <p className="text-[10px] text-slate-400 mt-2">
+                        معادل {(price / 10).toLocaleString("fa-IR")} تومان (با احتساب مالیات بر ارزش افزوده)
+                      </p>
+                    </div>
+
+                    {/* ضمانت‌های قانونی */}
+                    <div className="grid grid-cols-2 gap-2 text-[11px] text-slate-600 pt-1">
+                      <span className="flex items-center gap-1.5"><Truck size={14} className="text-brand-500" /> ارسال اکسپرس سراسری</span>
+                      <span className="flex items-center gap-1.5"><RotateCcw size={14} className="text-brand-500" /> ۷ روز ضمانت بازگشت وجه</span>
+                      <span className="flex items-center gap-1.5"><ShieldCheck size={14} className="text-brand-500" /> گارانتی سلامت فیزیکی</span>
+                      <span className="flex items-center gap-1.5"><CreditCard size={14} className="text-brand-500" /> پرداخت امن شاپرک</span>
+                    </div>
+
+                  </div>
+                </div>
+
+                {/* ۵. جدول مشخصات کلیدی (Key Attributes) */}
+                <div className="pt-6 border-t border-slate-100 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
+                      <span className="h-4 w-1 bg-brand-500 rounded-full inline-block"></span>
+                      مشخصات کلیدی و ویژگی‌ها (Key Attributes)
+                    </h3>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 text-xs">
+                    {(product?.attributes && product.attributes.length > 0 ? product.attributes : DEFAULT_ATTRIBUTES).map((attr: any, i: number) => (
+                      <div key={i} className="p-3 rounded-2xl bg-slate-50 border border-slate-100/80 flex flex-col justify-between">
+                        <span className="text-slate-400 text-[10px] font-medium">{attr.key}</span>
+                        <span className="text-slate-800 font-bold mt-1 text-[11px]">{attr.value}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+              </div>
+
+              {/* ستون کناری: کارت اپلیکیشن ماین (۴ ستون) */}
+              <div className="lg:col-span-4 space-y-4">
+                <div className="rounded-3xl bg-white border border-pink-100 p-6 shadow-xs flex flex-col justify-between">
+                  <div>
+                    <div className="flex items-center gap-3 mb-3">
+                      <div className="h-12 w-12 flex items-center justify-center flex-shrink-0">
+                  <img src={appIcon} alt="ماین" className="h-full w-full object-contain select-none" />
+                </div>
+                      <div>
+                        <h4 className="text-sm font-bold text-slate-800">ماین</h4>
+                        <p className="text-[11px] text-slate-400">بازار چند منظوره</p>
+                      </div>
+                    </div>
+                    
+                    <div className="grid grid-cols-2 gap-2 text-[11px] text-slate-600 mt-4">
+                      <span className="flex items-center gap-1.5 p-2 rounded-xl bg-slate-50"><Zap size={13} className="text-brand-500" /> پرداخت سریع</span>
+                      <span className="flex items-center gap-1.5 p-2 rounded-xl bg-slate-50"><Shield size={13} className="text-brand-500" /> امنیت بالا</span>
+                      <span className="flex items-center gap-1.5 p-2 rounded-xl bg-slate-50"><Layers size={13} className="text-brand-500" /> تنوع برندها</span>
+                      <span className="flex items-center gap-1.5 p-2 rounded-xl bg-slate-50"><Headphones size={13} className="text-brand-500" /> پشتیبانی ۲۴/۷</span>
+                    </div>
+                  </div>
+
+                  <div className="pt-4 border-t border-slate-100 mt-4 text-center">
+                    <span className="text-xs font-bold text-brand-600 bg-brand-50 px-4 py-2.5 rounded-xl inline-block w-full">
+                      دانلود خیلی زود
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+            </div>
+
+            {/* ۶. کارت سفید شکیل و متناسب عملیات خرید */}
+            <div className="flex flex-col items-center justify-center pt-2">
+              <div className="w-full max-w-xl bg-white rounded-3xl border border-slate-100 p-4 sm:p-5 shadow-xs">
+                <div className="flex flex-col sm:flex-row items-center justify-center gap-3 w-full">
+                  <button
+                    type="button"
+                    onClick={handleAddToCart}
+                    className="flex-1 w-full sm:w-auto py-3.5 px-6 rounded-2xl bg-pink-100 hover:bg-pink-200 text-brand-700 font-extrabold text-xs sm:text-sm transition flex items-center justify-center gap-2 cursor-pointer active:scale-95"
+                  >
+                    <Plus size={18} />
+                    <span>افزودن به سبد</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleProceedCheckout}
+                    className="flex-1 w-full sm:w-auto py-3.5 px-8 rounded-2xl bg-brand-600 hover:bg-brand-700 text-white font-extrabold text-xs sm:text-sm transition flex items-center justify-center gap-2 cursor-pointer shadow-md shadow-brand-500/20 active:scale-95"
+                  >
+                    <CreditCard size={18} />
+                    <span>ادامه فرایند خرید</span>
+                  </button>
+                </div>
+
+                {addedToast && (
+                  <div className="mt-3 flex items-center justify-center gap-2 text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 py-2 px-4 rounded-xl animate-in fade-in duration-200">
+                    <CheckCircle2 size={16} className="text-emerald-600" />
+                    <span>محصول با موفقیت به سبد خرید اضافه شد.</span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+          </div>
+        )}
+
+      </main>
+
+      <Footer />
+
+      <AboutModal isOpen={aboutOpen} onClose={() => setAboutOpen(false)} />
+      <SupportModal isOpen={supportOpen} onClose={() => setSupportOpen(false)} />
+      <TermsModal isOpen={termsOpen} onClose={() => setTermsOpen(false)} />
+    </AppShell>
+  )
+}
