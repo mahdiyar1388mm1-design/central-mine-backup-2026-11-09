@@ -11,7 +11,6 @@ import {
   type SaleStatus,
   faDate,
   fmt,
-  seedDB,
   sum,
   uid,
 } from "./data";
@@ -19,6 +18,7 @@ import { useMediaQuery, useOverlay, useVisualViewport } from "./hooks";
 import { Badge, Btn, CopyBtn, Icon, Modal } from "./components/ui";
 import { Logo } from "./components/Logo";
 import { cn } from "./utils/cn";
+import { API_BASE, get as apiGet, put as apiPut, type ApiResult } from "./api";
 import Dashboard, { type DashProps } from "./pages/Dashboard";
 import Treasury, { type TreasuryProps } from "./pages/Treasury";
 import Sales, { type SalesProps } from "./pages/Sales";
@@ -26,10 +26,40 @@ import Accounting, { type AccountingProps } from "./pages/Accounting";
 import Support, { type SupportProps } from "./pages/Support";
 
 type Tab = "dash" | "vault" | "sales" | "accounts" | "support";
-const ADMIN_PANEL_KEY =
-  import.meta.env.VITE_ADMIN_PANEL_KEY || "adm-panel-2026-11-08-7QmR9pX2";
 
 const LIVE_REFRESH_MS = 15_000;
+
+/** endpointهایی که پنل برای ساخت DB به آن‌ها تکیه می‌کند. */
+type EndpointKey = "state" | "overview" | "treasury" | "productsReport" | "sales" | "catalog";
+
+const ENDPOINTS: { key: EndpointKey; label: string; path: string; panelKey?: boolean }[] = [
+  { key: "state", label: "وضعیت پنل", path: "/admin/state" },
+  { key: "overview", label: "نمای کلی پروتکل", path: "/admin/overview" },
+  { key: "treasury", label: "گزارش خزانه", path: "/admin/treasury/report" },
+  { key: "productsReport", label: "گزارش محصولات", path: "/admin/products/report" },
+  { key: "sales", label: "فروش‌ها", path: "/admin/sales" },
+  { key: "catalog", label: "کاتالوگ محصولات", path: "/products?page=1&size=200", panelKey: false },
+];
+
+type EndpointState = {
+  status: number;
+  error?: string;
+};
+
+type ConnectionState = {
+  phase: "idle" | "loading" | "done";
+  /** نتیجهٔ آخرین تلاش برای هر endpoint؛ برای نمایش دقیق علت در بنر. */
+  results: Partial<Record<EndpointKey, EndpointState>>;
+  okCount: number;
+  lastAttemptAt: string | null;
+};
+
+const emptyConnection = (): ConnectionState => ({
+  phase: "idle",
+  results: {},
+  okCount: 0,
+  lastAttemptAt: null,
+});
 
 const TABS: { id: Tab; label: string; icon: string }[] = [
   { id: "dash", label: "داشبورد", icon: "grid" },
@@ -177,11 +207,11 @@ const buildLiveDB = (
     buybacks: Array.isArray(base.treasury.buybacks) && base.treasury.buybacks.length > 0 ? base.treasury.buybacks : [],
   };
 
-  const mappedJournal = (manualRecords || [])
-    .map(mapManualRecordToJournalEntry)
+  const mappedJournal: JournalEntry[] = ((manualRecords || []) as unknown[])
+    .map((record) => mapManualRecordToJournalEntry(record))
     .filter((entry): entry is JournalEntry => Boolean(entry));
 
-  const catalogRows = Array.isArray(productCatalog) && productCatalog.length > 0
+  const catalogRows: any[] = Array.isArray(productCatalog) && productCatalog.length > 0
     ? productCatalog
     : Array.isArray(productReport?.products) && productReport.products.length > 0
       ? productReport.products
@@ -254,7 +284,7 @@ const buildLiveDB = (
 
 export default function App() {
   const [tab, setTab] = useState<Tab>("dash");
-  const [db, setDb] = useState<DB>(() =>
+  const [db, setDbRaw] = useState<DB>(() =>
     normalizeDB({
       version: 2,
       treasury: {
@@ -274,6 +304,8 @@ export default function App() {
     })
   );
   const [dbReady, setDbReady] = useState(false);
+  const [conn, setConn] = useState<ConnectionState>(emptyConnection);
+  const [connOpen, setConnOpen] = useState(true);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [sideOpen, setSideOpen] = useState(false);
   const [resetOpen, setResetOpen] = useState(false);
@@ -282,96 +314,133 @@ export default function App() {
   const menuButtonRef = useRef<HTMLButtonElement>(null);
   const desktop = useMediaQuery("(min-width: 1024px)");
 
-  useVisualViewport();
-  useOverlay(sideOpen && !desktop, sidebarRef, () => setSideOpen(false), menuButtonRef);
+  /**
+   * آیا تغییر فعلی `db` کار کاربر بوده یا نتیجهٔ خواندن از سرور؟
+   *
+   * این پرچم حیاتی است: نسخهٔ قبلی هر بار که `db` عوض می‌شد (از جمله وقتی
+   * خودِ رفرشِ ۱۵ ثانیه‌ای آن را ست می‌کرد) کل state را با PUT به سرور
+   * می‌فرستاد. اگر خواندن شکست می‌خورد، DB خالی ساخته می‌شد و همان DB خالی
+   * روی سرور ذخیره می‌شد — یعنی پنل دادهٔ واقعی را با مقادیر پیش‌فرض
+   * بازنویسی می‌کرد. حالا فقط تغییرات کاربر ذخیره می‌شوند.
+   */
+  const dirtyRef = useRef(false);
+  /** نگه‌داشتن آخرین درخواست تا رفرش بعدی بتواند قبلی را لغو کند. */
+  const abortRef = useRef<AbortController | null>(null);
 
-  const refreshFromServer = useCallback(() => {
-    let cancelled = false;
-
-    Promise.all([
-      fetch("/v1/admin/state", {
-        credentials: "same-origin",
-        headers: { "X-Admin-Panel-Key": ADMIN_PANEL_KEY },
-      }).then((response) => (response.ok ? response.json() : null)).catch(() => null),
-      fetch("/v1/admin/overview", {
-        credentials: "same-origin",
-        headers: { "X-Admin-Panel-Key": ADMIN_PANEL_KEY },
-      }).then((response) => (response.ok ? response.json() : null)).catch(() => null),
-      fetch("/v1/admin/treasury/report", {
-        credentials: "same-origin",
-        headers: { "X-Admin-Panel-Key": ADMIN_PANEL_KEY },
-      }).then((response) => (response.ok ? response.json() : null)).catch(() => null),
-      fetch("/v1/admin/products/report", {
-        credentials: "same-origin",
-        headers: { "X-Admin-Panel-Key": ADMIN_PANEL_KEY },
-      }).then((response) => (response.ok ? response.json() : null)).catch(() => null),
-      fetch("/v1/admin/sales", {
-        credentials: "same-origin",
-        headers: { "X-Admin-Panel-Key": ADMIN_PANEL_KEY },
-      }).then((response) => (response.ok ? response.json() : [])).catch(() => []),
-      fetch("/v1/products?page=1&size=200", {
-        credentials: "same-origin",
-      }).then((response) => (response.ok ? response.json() : { products: [] })).catch(() => ({ products: [] })),
-    ])
-      .then(([statePayload, overviewPayload, treasuryPayload, productPayload, salesPayload, productCatalogPayload]) => {
-        if (cancelled) return;
-        const nextDb = buildLiveDB(
-          statePayload?.state ?? statePayload,
-          overviewPayload,
-          treasuryPayload,
-          productPayload,
-          Array.isArray(salesPayload) ? salesPayload : [],
-          Array.isArray(productCatalogPayload?.products) ? productCatalogPayload.products : []
-        );
-        setDb(normalizeDB(nextDb));
-        setDbReady(true);
-      })
-      .catch(() => {
-        if (!cancelled) setDbReady(true);
-      });
-
-    return () => { cancelled = true; };
+  const mutateDb = useCallback((updater: (current: DB) => DB) => {
+    dirtyRef.current = true;
+    setDbRaw(updater);
   }, []);
 
-  useEffect(() => {
-    const cleanup = refreshFromServer();
-    const interval = window.setInterval(() => {
-      refreshFromServer();
-    }, LIVE_REFRESH_MS);
-
-    return () => {
-      cleanup?.();
-      window.clearInterval(interval);
-    };
-  }, [refreshFromServer]);
-
-  useEffect(() => {
-    if (!dbReady) return;
-    const timer = window.setTimeout(() => {
-      fetch("/v1/admin/state", {
-        method: "PUT",
-        credentials: "same-origin",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Admin-Panel-Key": ADMIN_PANEL_KEY,
-        },
-        body: JSON.stringify({ state: db }),
-      }).catch(() => notify("ذخیره‌سازی روی سرور انجام نشد؛ اتصال را بررسی کنید."));
-    }, 350);
-    return () => window.clearTimeout(timer);
-  }, [db, dbReady]);
-  useEffect(() => {
-    if (desktop) setSideOpen(false);
-  }, [desktop]);
-  useEffect(() => {
-    window.scrollTo({ top: 0, behavior: "instant" });
-  }, [tab]);
+  useVisualViewport();
+  useOverlay(sideOpen && !desktop, sidebarRef, () => setSideOpen(false), menuButtonRef);
 
   const notify = useCallback((msg: string) => {
     const id = uid();
     setToasts((t) => [...t, { id, msg }]);
     setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 4200);
   }, []);
+
+  const refreshFromServer = useCallback(async () => {
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+
+    setConn((c) => ({ ...c, phase: "loading" }));
+
+    const responses = await Promise.all(
+      ENDPOINTS.map((endpoint) =>
+        apiGet<unknown>(endpoint.path, {
+          panelKey: endpoint.panelKey !== false,
+          signal: controller.signal,
+        })
+      )
+    );
+
+    if (controller.signal.aborted) return;
+
+    const results: Partial<Record<EndpointKey, EndpointState>> = {};
+    responses.forEach((response, index) => {
+      const key = ENDPOINTS[index].key;
+      results[key] = response.ok
+        ? { status: 200 }
+        : { status: response.status, error: response.error };
+    });
+    const okCount = responses.filter((response) => response.ok).length;
+
+    setConn({
+      phase: "done",
+      results,
+      okCount,
+      lastAttemptAt: new Date().toISOString(),
+    });
+
+    const [stateRes, overviewRes, treasuryRes, productRes, salesRes, catalogRes] = responses;
+
+    // اگر هیچ endpoint-ی جواب نداد، دست به db نمی‌زنیم و dbReady را هم
+    // true نمی‌کنیم. این دقیقاً همان نقطه‌ای است که قبلاً DB خالی ساخته و
+    // روی سرور ذخیره می‌شد.
+    if (okCount === 0) {
+      setDbReady(false);
+      setConnOpen(true);
+      return;
+    }
+
+    const payload = (result: ApiResult<unknown>, fallback: unknown) =>
+      result.ok ? result.data : fallback;
+
+    const statePayload = payload(stateRes, null) as { state?: unknown } | unknown | null;
+    const salesPayload = payload(salesRes, []) as unknown;
+    const catalogPayload = payload(catalogRes, { products: [] }) as { products?: unknown };
+
+    const nextDb = buildLiveDB(
+      (statePayload as { state?: unknown })?.state ?? statePayload,
+      payload(overviewRes, null),
+      payload(treasuryRes, null),
+      payload(productRes, null),
+      Array.isArray(salesPayload) ? (salesPayload as unknown[]) : [],
+      Array.isArray(catalogPayload?.products) ? (catalogPayload.products as unknown[]) : []
+    );
+
+    // داده از سرور آمده، پس نباید دوباره به سرور برگردانده شود.
+    dirtyRef.current = false;
+    setDbRaw(normalizeDB(nextDb));
+    setDbReady(true);
+    setConnOpen(okCount < ENDPOINTS.length);
+  }, []);
+
+  useEffect(() => {
+    void refreshFromServer();
+    const interval = window.setInterval(() => {
+      void refreshFromServer();
+    }, LIVE_REFRESH_MS);
+
+    return () => {
+      abortRef.current?.abort();
+      window.clearInterval(interval);
+    };
+  }, [refreshFromServer]);
+
+  useEffect(() => {
+    // فقط تغییرات کاربر ذخیره می‌شوند، نه نتیجهٔ رفرش از سرور.
+    if (!dbReady || !dirtyRef.current) return;
+    dirtyRef.current = false;
+
+    const timer = window.setTimeout(() => {
+      void apiPut("/admin/state", { state: db }).then((result) => {
+        if (!result.ok) {
+          notify(`ذخیره روی سرور ناموفق بود (${result.status || "شبکه"}): ${result.error}`);
+        }
+      });
+    }, 350);
+    return () => window.clearTimeout(timer);
+  }, [db, dbReady, notify]);
+  useEffect(() => {
+    if (desktop) setSideOpen(false);
+  }, [desktop]);
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: "instant" });
+  }, [tab]);
 
   const go = (t: string) => {
     setTab(t as Tab);
@@ -381,7 +450,7 @@ export default function App() {
   /* ---------- اکشن‌های خزانه ---------- */
 
   const setAsset: TreasuryProps["setAsset"] = (v, note) =>
-    setDb((d) => {
+    mutateDb((d) => {
       const diff = v - d.treasury.asset;
       if (diff === 0) return d;
       const entry: JournalEntry = {
@@ -398,14 +467,14 @@ export default function App() {
     });
 
   const setMarketPrice: TreasuryProps["setMarketPrice"] = (v) =>
-    setDb((d) => ({ ...d, treasury: { ...d.treasury, marketPrice: v } }));
+    mutateDb((d) => ({ ...d, treasury: { ...d.treasury, marketPrice: v } }));
 
   const setBuybackInfo: TreasuryProps["setBuybackInfo"] = (info) =>
-    setDb((d) => ({ ...d, treasury: { ...d.treasury, buybackInfo: info } }));
+    mutateDb((d) => ({ ...d, treasury: { ...d.treasury, buybackInfo: info } }));
 
   const addStakeReturn: TreasuryProps["addStakeReturn"] = (s) => {
     const ref = uid();
-    setDb((d) => ({
+    mutateDb((d) => ({
       ...d,
       treasury: { ...d.treasury, stakeReturns: [{ ...s, id: ref }, ...d.treasury.stakeReturns] },
       journal: [
@@ -426,7 +495,7 @@ export default function App() {
   };
 
   const removeStakeReturn: TreasuryProps["removeStakeReturn"] = (id) =>
-    setDb((d) => ({
+    mutateDb((d) => ({
       ...d,
       treasury: { ...d.treasury, stakeReturns: d.treasury.stakeReturns.filter((x) => x.id !== id) },
       journal: d.journal.filter((j) => j.ref !== id),
@@ -434,7 +503,7 @@ export default function App() {
 
   const addBaseReturn: TreasuryProps["addBaseReturn"] = (b) => {
     const ref = uid();
-    setDb((d) => ({
+    mutateDb((d) => ({
       ...d,
       treasury: { ...d.treasury, baseReturns: [{ ...b, id: ref }, ...d.treasury.baseReturns] },
       journal: [
@@ -455,7 +524,7 @@ export default function App() {
   };
 
   const removeBaseReturn: TreasuryProps["removeBaseReturn"] = (id) =>
-    setDb((d) => ({
+    mutateDb((d) => ({
       ...d,
       treasury: { ...d.treasury, baseReturns: d.treasury.baseReturns.filter((x) => x.id !== id) },
       journal: d.journal.filter((j) => j.ref !== id),
@@ -463,7 +532,7 @@ export default function App() {
 
   const addFee: TreasuryProps["addFee"] = (f) => {
     const ref = uid();
-    setDb((d) => ({
+    mutateDb((d) => ({
       ...d,
       treasury: { ...d.treasury, fees: [{ ...f, id: ref }, ...d.treasury.fees] },
       journal: [
@@ -483,7 +552,7 @@ export default function App() {
   };
 
   const removeFee: TreasuryProps["removeFee"] = (id) =>
-    setDb((d) => ({
+    mutateDb((d) => ({
       ...d,
       treasury: { ...d.treasury, fees: d.treasury.fees.filter((x) => x.id !== id) },
       journal: d.journal.filter((j) => j.ref !== id),
@@ -491,7 +560,7 @@ export default function App() {
 
   const addBuyback: TreasuryProps["addBuyback"] = (b) => {
     const ref = uid();
-    setDb((d) => ({
+    mutateDb((d) => ({
       ...d,
       treasury: {
         ...d.treasury,
@@ -527,7 +596,7 @@ export default function App() {
   };
 
   const removeBuyback: TreasuryProps["removeBuyback"] = (id) =>
-    setDb((d) => ({
+    mutateDb((d) => ({
       ...d,
       treasury: {
         ...d.treasury,
@@ -540,7 +609,7 @@ export default function App() {
   /* ---------- فروش محصولات ---------- */
 
   const saveProduct: SalesProps["saveProduct"] = (draft: ProductDraft, productId) =>
-    setDb((d) => {
+    mutateDb((d) => {
       if (productId) {
         return {
           ...d,
@@ -564,7 +633,7 @@ export default function App() {
     });
 
   const toggleProduct: SalesProps["toggleProduct"] = (id) =>
-    setDb((d) => ({
+    mutateDb((d) => ({
       ...d,
       products: d.products.map((product) =>
         product.id === id ? { ...product, active: !product.active } : product
@@ -587,7 +656,7 @@ export default function App() {
     }
 
     const saleId = uid();
-    setDb((d) => {
+    mutateDb((d) => {
       const currentProduct = d.products.find((item) => item.id === draft.productId);
       if (!currentProduct || draft.qty > currentProduct.stock) return d;
       const sale: SaleOrder = {
@@ -633,7 +702,7 @@ export default function App() {
       }
     }
 
-    setDb((d) => {
+    mutateDb((d) => {
       const sale = d.sales.find((item) => item.id === id);
       if (!sale || sale.status === status) return d;
       const wasCancelled = sale.status === "cancelled";
@@ -665,7 +734,7 @@ export default function App() {
   };
 
   const removeSale: SalesProps["removeSale"] = (id) =>
-    setDb((d) => {
+    mutateDb((d) => {
       const sale = d.sales.find((item) => item.id === id);
       if (!sale) return d;
       const restore = sale.status !== "cancelled";
@@ -690,24 +759,24 @@ export default function App() {
   /* ---------- حسابداری ---------- */
 
   const addEntry: AccountingProps["addEntry"] = (e) =>
-    setDb((d) => ({ ...d, journal: [...d.journal, { ...e, id: uid() }] }));
+    mutateDb((d) => ({ ...d, journal: [...d.journal, { ...e, id: uid() }] }));
 
   const removeEntry: AccountingProps["removeEntry"] = (id) =>
-    setDb((d) => ({ ...d, journal: d.journal.filter((j) => j.id !== id) }));
+    mutateDb((d) => ({ ...d, journal: d.journal.filter((j) => j.id !== id) }));
 
   /* ---------- پشتیبانی ---------- */
 
   const selectChat: SupportProps["setActive"] = (id) => {
     setActiveChat(id);
     if (id)
-      setDb((d) => ({
+      mutateDb((d) => ({
         ...d,
         chats: d.chats.map((c) => (c.id === id ? { ...c, unread: 0 } : c)),
       }));
   };
 
   const sendReply: SupportProps["sendReply"] = (chatId, text) =>
-    setDb((d) => ({
+    mutateDb((d) => ({
       ...d,
       chats: d.chats.map((c) =>
         c.id === chatId
@@ -721,7 +790,7 @@ export default function App() {
     }));
 
   const setChatStatus: SupportProps["setStatus"] = (chatId, status) =>
-    setDb((d) => ({
+    mutateDb((d) => ({
       ...d,
       chats: d.chats.map((c) => (c.id === chatId ? { ...c, status } : c)),
     }));
@@ -752,6 +821,38 @@ export default function App() {
       { l: "پیام‌های جدید پشتیبانی", v: fmt(unread) },
     ];
   }, [db, t, unread]);
+
+  /* ---------- وضعیت اتصال به API ---------- */
+
+  const connSummary = useMemo(() => {
+    const total = ENDPOINTS.length;
+    if (conn.phase !== "done") {
+      return {
+        tone: "loading" as const,
+        title: conn.phase === "loading" ? "در حال خواندن از سرور…" : "هنوز به سرور وصل نشده",
+        detail: `تلاش برای اتصال به ${API_BASE}`,
+      };
+    }
+    if (conn.okCount === total) {
+      return {
+        tone: "ok" as const,
+        title: "متصل به سرور — دادهٔ زنده",
+        detail: `هر ${total} endpoint پاسخ داد · ${API_BASE}`,
+      };
+    }
+    if (conn.okCount === 0) {
+      return {
+        tone: "error" as const,
+        title: "اتصال به سرور برقرار نشد — داده‌ها نمایش داده نمی‌شوند",
+        detail: `هیچ‌کدام از ${total} endpoint پاسخ ندادند · ${API_BASE}`,
+      };
+    }
+    return {
+      tone: "warn" as const,
+      title: `اتصال ناقص — فقط ${conn.okCount} از ${total} endpoint پاسخ داد`,
+      detail: `اعداد ممکن است کامل نباشند · ${API_BASE}`,
+    };
+  }, [conn]);
 
   const dashProps: DashProps = { db, go };
   const treasuryProps: TreasuryProps = {
@@ -888,11 +989,22 @@ export default function App() {
             </div>
             <div className="flex items-center justify-between rounded-lg border border-white/10 px-3 py-2.5">
               <span className="flex items-center gap-2 text-[11px] font-bold text-paper/60">
-                <span className="pulse-dot h-2 w-2 rounded-full bg-mint" />
-                حالت زنده
+                <span
+                  className={cn(
+                    "h-2 w-2 rounded-full",
+                    connSummary.tone === "ok" && "pulse-dot bg-mint",
+                    connSummary.tone === "warn" && "bg-amber",
+                    connSummary.tone === "error" && "bg-rust",
+                    connSummary.tone === "loading" && "bg-paper/30"
+                  )}
+                />
+                {connSummary.tone === "ok" && "حالت زنده"}
+                {connSummary.tone === "warn" && "اتصال ناقص"}
+                {connSummary.tone === "error" && "قطع از سرور"}
+                {connSummary.tone === "loading" && "در حال اتصال"}
               </span>
               <span className="font-num text-[9.5px] tracking-widest text-paper/35" dir="ltr">
-                LIVE API
+                {conn.phase === "done" ? `${conn.okCount}/${ENDPOINTS.length} OK` : "LIVE API"}
               </span>
             </div>
           </div>
@@ -918,9 +1030,15 @@ export default function App() {
               <h1 className="truncate text-[17px] font-black text-ink-900">{TITLES[tab][0]}</h1>
               <p className="hidden truncate text-[11.5px] text-ink-400 sm:block">{TITLES[tab][1]}</p>
             </div>
-            <Badge kind="neutral" className="hidden md:inline-flex">
-              <Icon name="lock" className="h-3 w-3" />
-              اتصال امن به بک‌اند
+            <Badge
+              kind={connSummary.tone === "ok" ? "mint" : connSummary.tone === "error" ? "rust" : "amber"}
+              className="hidden md:inline-flex"
+            >
+              <Icon name={connSummary.tone === "ok" ? "lock" : "info"} className="h-3 w-3" />
+              {connSummary.tone === "ok" && "اتصال زنده به بک‌اند"}
+              {connSummary.tone === "warn" && `اتصال ناقص (${conn.okCount}/${ENDPOINTS.length})`}
+              {connSummary.tone === "error" && "قطع از بک‌اند"}
+              {connSummary.tone === "loading" && "در حال اتصال…"}
             </Badge>
             <span className="hidden text-[12px] font-bold text-ink-500 sm:block">{faDate(new Date().toISOString())}</span>
             <button
@@ -953,6 +1071,95 @@ export default function App() {
 
         {/* صفحه فعال */}
         <main className="min-w-0 flex-1 px-3 py-5 sm:px-6 sm:py-6 lg:px-8">
+          {/* ---------- بنر وضعیت اتصال ----------
+              تا پیش از این، شکست درخواست‌ها بی‌صدا بلعیده می‌شد و پنل بدون هیچ
+              توضیحی مقادیر پیش‌فرض/صفر نشان می‌داد. اینجا علت دقیق دیده می‌شود. */}
+          {connSummary.tone !== "ok" && connOpen && (
+            <section
+              role="status"
+              aria-live="polite"
+              className={cn(
+                "mx-auto mb-5 max-w-[1200px] overflow-hidden rounded-xl border",
+                connSummary.tone === "error" && "border-rust/35 bg-rust/5",
+                connSummary.tone === "warn" && "border-amber/35 bg-amber/5",
+                connSummary.tone === "loading" && "border-line bg-card"
+              )}
+            >
+              <div className="flex flex-wrap items-center gap-3 px-4 py-3">
+                <span
+                  className={cn(
+                    "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg",
+                    connSummary.tone === "error" && "bg-rust/12 text-rust",
+                    connSummary.tone === "warn" && "bg-amber/12 text-amber",
+                    connSummary.tone === "loading" && "bg-ink-300/25 text-ink-500"
+                  )}
+                >
+                  <Icon name={connSummary.tone === "loading" ? "refresh" : "info"} className="h-4 w-4" />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-[13px] font-extrabold text-ink-900">{connSummary.title}</p>
+                  <p className="mt-0.5 truncate font-num text-[10.5px] text-ink-400" dir="ltr">
+                    {connSummary.detail}
+                  </p>
+                </div>
+                <div className="flex shrink-0 items-center gap-2">
+                  <Btn
+                    kind="ghost"
+                    icon="refresh"
+                    onClick={() => {
+                      setConnOpen(false);
+                      void refreshFromServer();
+                    }}
+                    disabled={conn.phase === "loading"}
+                  >
+                    تلاش دوباره
+                  </Btn>
+                  <button
+                    type="button"
+                    onClick={() => setConnOpen(false)}
+                    aria-label="بستن پیام وضعیت اتصال"
+                    className="touch-target rounded-lg border border-line bg-card p-2 text-ink-500 transition hover:text-ink-900"
+                  >
+                    <Icon name="x" className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              </div>
+
+              {/* فهرست دقیق endpointهای ناموفق + علت هرکدام */}
+              {conn.phase === "done" && conn.okCount < ENDPOINTS.length && (
+                <div className="border-t border-linefaint bg-paper/60 px-4 py-3">
+                  <ul className="space-y-1.5">
+                    {ENDPOINTS.filter((endpoint) => {
+                      const result = conn.results[endpoint.key];
+                      return result && result.status !== 200;
+                    }).map((endpoint) => {
+                      const result = conn.results[endpoint.key]!;
+                      return (
+                        <li key={endpoint.key} className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-[11.5px]">
+                          <code className="font-num text-[10.5px] font-bold text-ink-700" dir="ltr">
+                            {endpoint.path}
+                          </code>
+                          <span className="font-num rounded bg-ink-900 px-1.5 py-0.5 text-[9.5px] font-bold text-paper" dir="ltr">
+                            {result.status === 0 ? "NETWORK" : result.status}
+                          </span>
+                          <span className="min-w-0 flex-1 text-ink-500">{result.error}</span>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                  {conn.okCount === 0 && (
+                    <p className="mt-3 border-t border-linefaint pt-3 text-[11.5px] leading-6 text-ink-500">
+                      برای اتصال، یا <code className="font-num" dir="ltr">VITE_ADMIN_API_BASE</code> باید به دامنهٔ درست
+                      اشاره کند، یا همان origin باید <code className="font-num" dir="ltr">/v1</code> را به بک‌اند
+                      پروکسی کند، و یا سرور باید هدرهای CORS را برای این مبدأ بفرستد. کنسول مرورگر علت دقیق را نشان
+                      می‌دهد.
+                    </p>
+                  )}
+                </div>
+              )}
+            </section>
+          )}
+
           <div key={tab} className="mx-auto min-w-0 max-w-[1200px]">
             {tab === "dash" && <Dashboard {...dashProps} />}
             {tab === "vault" && <Treasury {...treasuryProps} />}
@@ -1001,8 +1208,9 @@ export default function App() {
             onClick={() => {
               setResetOpen(false);
               setDbReady(false);
-              refreshFromServer();
-              notify("داده‌های سرور دوباره بارگذاری شد");
+              setConnOpen(true);
+              notify("در حال بارگذاری دوبارهٔ داده‌ها از سرور…");
+              void refreshFromServer();
             }}
           >
             بله، بازخوانی شود
