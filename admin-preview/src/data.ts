@@ -788,10 +788,12 @@ export function normalizeDB(input: unknown): DB {
   const hasJournal = Object.prototype.hasOwnProperty.call(raw, "journal") && Array.isArray(raw.journal);
   const hasChats = Object.prototype.hasOwnProperty.call(raw, "chats") && Array.isArray(raw.chats);
 
-  const journal = hasJournal ? raw.journal : seed.journal;
-  const products = hasProducts ? raw.products : seed.products;
-  const sales = hasSales ? (raw.sales as SaleOrder[]) : seed.sales;
-  const chats = hasChats ? raw.chats : seed.chats;
+  // hasJournal و… فقط boolean هستند و نوع raw.journal را باریک نمی‌کنند، پس
+  // بعد از بررسی، صریحاً به نوع درست cast می‌کنیم.
+  const journal: JournalEntry[] = hasJournal ? (raw.journal as JournalEntry[]) : seed.journal;
+  const products: Product[] = hasProducts ? (raw.products as Product[]) : seed.products;
+  const sales: SaleOrder[] = hasSales ? (raw.sales as SaleOrder[]) : seed.sales;
+  const chats: Chat[] = hasChats ? (raw.chats as Chat[]) : seed.chats;
 
   const seededProductEntries = seed.journal.filter((entry) => entry.category === "فروش محصولات");
   const mergedJournal = hasSales

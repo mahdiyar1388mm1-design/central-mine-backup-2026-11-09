@@ -3,3 +3,11 @@ dist/
 test-results/
 playwright-report/
 .DS_Store
+
+# پیکربندی محلی — مقادیر پیش‌فرض در src/api.ts هستند، پس بدون این فایل هم
+# پروژه کار می‌کند. هیچ‌وقت کلید واقعی را در نسخهٔ commit‌شده نگذارید.
+.env
+.env.local
+.env.*.local
+
+*.tsbuildinfo
